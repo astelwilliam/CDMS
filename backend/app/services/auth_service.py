@@ -64,11 +64,19 @@ class AuthService:
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        if not verify_password(current_password, user.hashed_password):
+        print(f"Email received: {login_data.email}")
+        
+        if user:
+            print(f"Stored hash: {user.hashed_password}")
+            print(f"Password received: {login_data.password}")
+            print(f"Password verification: {verify_password(login_data.password, user.hashed_password)}")
+        
+        if not user or not verify_password(login_data.password, user.hashed_password):
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Current password is incorrect"
-            )
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect email or password",
+                headers={"WWW-Authenticate": "Bearer"},
+        )
 
         # Hash and update new password
         user.hashed_password = hash_password(new_password)
