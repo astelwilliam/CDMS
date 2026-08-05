@@ -136,9 +136,7 @@ cython_debug/
 *.swp
 *.swo
 
-# Alembic
-alembic/versions/*.py
-!alembic/versions/__init__.py
+# Alembic migration revisions are intentionally version controlled
 
 # OS generated files
 .DS_Store

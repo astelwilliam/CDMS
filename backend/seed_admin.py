@@ -13,7 +13,7 @@ def seed_super_admin():
     try:
         user_repo = UserRepository(db)
 
-        email = "admin@example.com"
+        email = "admin@cdms.com"
 
         # Check if admin already exists
         if user_repo.exists_by_email(email):
