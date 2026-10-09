@@ -143,3 +143,5 @@ alembic/versions/*.py
 # OS generated files
 .DS_Store
 Thumbs.db
+docs/AI_CONTEXT.md
+docs/AI_INSTRUCTIONS.md
