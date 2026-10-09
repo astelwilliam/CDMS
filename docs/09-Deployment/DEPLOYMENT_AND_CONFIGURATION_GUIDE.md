@@ -11,7 +11,7 @@ This document defines the deployment architecture, environment strategy, and con
 
 ## 2. Deployment Architecture
 The system is deployed as three primary components:
-- Frontend: Flutter web application
+- Frontend: React (Vite) web application
 - Backend: FastAPI application
 - Database: PostgreSQL
 

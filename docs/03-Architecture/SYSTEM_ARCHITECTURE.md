@@ -19,12 +19,12 @@ CDMS consists of three primary interfaces:
 - **Department Administration** – For department-level content management
 - **Super Administration** – For system-wide oversight and multi-department management
 
-The system follows a client-server model with a Flutter-based frontend and a FastAPI backend, backed by PostgreSQL.
+The system follows a client-server model with a React (Vite) frontend and a FastAPI backend, backed by PostgreSQL.
 
 ## 4. Layered Architecture
 The proposed architecture follows a layered model:
 
-- **Presentation Layer** (Flutter)
+- **Presentation Layer** (React + Vite)
 - **Application Layer** (FastAPI business logic)
 - **Domain Layer** (core business rules and entities)
 - **Infrastructure Layer** (database, file storage, external services)
@@ -32,7 +32,7 @@ The proposed architecture follows a layered model:
 **TODO**: Confirm whether a strict hexagonal/clean architecture pattern will be enforced or if a simpler layered approach is sufficient.
 
 ## 5. Frontend Architecture
-- Built with Flutter for web
+- Built with React, using Vite as the build tool
 - Modular UI components aligned with public and administrative interfaces
 - Clear separation between public-facing pages and authenticated admin panels
 - **TODO**: Define state management approach and navigation strategy
@@ -75,7 +75,7 @@ Each module should maintain clear boundaries with minimal coupling to other modu
 
 ## 12. Data Flow Overview
 Typical data flow:
-1. User interacts with Flutter frontend
+1. User interacts with React frontend
 2. Frontend calls backend API
 3. Backend validates request and applies business logic
 4. Data is persisted or retrieved from PostgreSQL
@@ -126,7 +126,7 @@ The architecture is designed to support future additions such as:
 This will be achieved through modular boundaries and clear separation of concerns.
 
 ## 19. Risks & Trade-offs
-- Using Flutter for web may introduce learning curve and potential performance considerations.
+- React is a UI library rather than a full framework, so supporting libraries (routing, data fetching, state management) must be chosen and maintained.
 - FastAPI provides high productivity but requires careful structuring for long-term maintainability.
 - Delaying decisions on authentication and file storage increases risk of rework later.
 
@@ -135,7 +135,7 @@ The following architectural decisions require explicit approval before proceedin
 
 1. Authentication mechanism and session strategy
 2. File storage approach
-3. State management solution for Flutter
+3. State management solution for React (e.g., Context API, Zustand, Redux Toolkit)
 4. API versioning and error response standards
 5. Database access pattern (ORM vs raw queries)
 6. Logging and monitoring stack

@@ -32,7 +32,7 @@ Version 1 provides the following high-level functions:
 - **Super Administrators**: Authenticated users who manage the overall system and multiple departments
 
 ### 2.4 Operating Environment
-The system operates as a web application accessible via modern browsers. The backend is implemented using FastAPI, the frontend uses Flutter, and data is stored in PostgreSQL.
+The system operates as a web application accessible via modern browsers. The backend is implemented using FastAPI, the frontend uses React (Vite), and data is stored in PostgreSQL.
 
 ### 2.5 Assumptions and Dependencies
 - Users have access to modern web browsers.
@@ -113,7 +113,7 @@ The following capabilities are explicitly out of scope for Version 1 and are pla
 ## 6. Constraints
 
 ### 6.1 Technical Constraints
-- Must use Flutter for frontend
+- Must use React (Vite) for frontend
 - Must use FastAPI (Python) for backend
 - Must use PostgreSQL for database
 - Must follow the development workflow defined in `ai/DEVELOPMENT_WORKFLOW.md`

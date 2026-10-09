@@ -1,4 +1,4 @@
-# Architecture Decision Records (ADRs)
+﻿# Architecture Decision Records (ADRs)
 
 ## Purpose
 This document is the official register of all approved architecture decisions for the Campus Department Management System (CDMS). It serves as the single source of truth for architectural decisions made during the project.
@@ -30,7 +30,8 @@ This document is the official register of all approved architecture decisions fo
 | ADR ID | Decision | Status   | Date Approved |
 |--------|----------|----------|---------------|
 | ADR-001 | Clean Layered Architecture | Approved | 2026-07-23 |
-| ADR-002 | Flutter Web | Approved | 2026-07-23 |
+| ADR-002 | Flutter Web | Superseded by ADR-020 | 2026-07-23 |
+| ADR-020 | React (Vite) Frontend | Approved | 2026-10-09 |
 | ADR-003 | FastAPI | Approved | 2026-07-23 |
 | ADR-004 | PostgreSQL | Approved | 2026-07-23 |
 | ADR-005 | REST API | Approved | 2026-07-23 |
@@ -57,7 +58,7 @@ This document is the official register of all approved architecture decisions fo
 
 **Status:** Approved
 
-**Reason:** Provides a simple, maintainable, scalable architecture suitable for Flutter, FastAPI and PostgreSQL while remaining easy to understand and implement.
+**Reason:** Provides a simple, maintainable, scalable architecture suitable for React (Vite), FastAPI and PostgreSQL while remaining easy to understand and implement.
 
 ---
 
@@ -246,3 +247,17 @@ This document is the official register of all approved architecture decisions fo
 **Last Updated**: 2026-07-23  
 **Approved By**: Project Owner  
 **Referenced By**: SYSTEM_ARCHITECTURE.md, AI_CONTEXT.md, DEVELOPMENT_WORKFLOW.md, all future implementation documents
+
+## ADR-020: React (Vite) Frontend
+
+**Date:** 2026-10-09
+**Status:** Approved
+**Supersedes:** ADR-002
+
+**Decision:** React, using Vite as the build tool
+
+**Reason:** The frontend was built in React. React offers a large ecosystem, standard web tooling, fast Vite dev builds and broad developer familiarity. This record brings the documentation in line with the actual code.
+
+**Consequences:**
+- Routing, data fetching and state management libraries must be chosen separately.
+- The Flutter/Dart toolchain is no longer required.
