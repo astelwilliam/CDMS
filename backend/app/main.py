@@ -44,7 +44,7 @@ if settings.cors_origins:
 app.include_router(auth.router)
 app.include_router(college.router, dependencies=[Depends(get_current_super_admin)])
 app.include_router(department.router)
-app.include_router(faculty_member.router, dependencies=[Depends(get_current_super_admin)])
+app.include_router(faculty_member.router)
 app.include_router(announcement.router, dependencies=[Depends(get_current_super_admin)])
 app.include_router(event.router, dependencies=[Depends(get_current_super_admin)])
 app.include_router(academic_resource.router, dependencies=[Depends(get_current_super_admin)])

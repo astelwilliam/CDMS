@@ -189,7 +189,7 @@ def test_non_super_admin_rejected_on_every_business_operation(boundary, method, 
         headers={"Authorization": f"Bearer {tokens[credential]}"}, json={},
     )
     assert response.status_code == 403
-    if method == "GET" and path.startswith("/departments"):
+    if method == "GET" and path.startswith(("/departments", "/faculty_members")):
         assert response.json() == {
             "detail": "Department administrator access unavailable"
         }
