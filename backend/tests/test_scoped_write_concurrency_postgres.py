@@ -24,6 +24,10 @@ from app.services.scoped_write_authorization import (
     lock_department_write_access,
     revoke_department_assignment,
 )
+from app.services.privileged_user_mutation import (
+    stage_user_activation_change,
+    stage_user_role_change,
+)
 from app.core.config import settings
 
 
@@ -85,6 +89,7 @@ def concurrency_data(postgres_engine):
             "role",
             "user",
             "new_user",
+            "super_user",
             "administrator",
             "college",
             "department",
@@ -110,6 +115,13 @@ def concurrency_data(postgres_engine):
                     email=f"new-writer-{suffix}@example.com",
                     hashed_password="unused",
                     role="department_admin",
+                    is_active=True,
+                ),
+                User(
+                    id=ids["super_user"],
+                    email=f"super-{suffix}@example.com",
+                    hashed_password="unused",
+                    role="super_admin",
                     is_active=True,
                 ),
             ]
@@ -272,11 +284,20 @@ def test_account_change_waits_for_locked_authorization_then_takes_effect(
         with Session(engine) as db:
             set_lock_timeout(db)
             started.set()
-            user = db.scalar(
-                select(User).where(User.id == ids["user"]).with_for_update()
-            )
-            for field, value in changes.items():
-                setattr(user, field, value)
+            if "role" in changes:
+                stage_user_role_change(
+                    db,
+                    ids["super_user"],
+                    ids["user"],
+                    changes["role"],
+                )
+            else:
+                stage_user_activation_change(
+                    db,
+                    ids["super_user"],
+                    ids["user"],
+                    changes["is_active"],
+                )
             db.commit()
 
     with Session(engine) as authorization_db, ThreadPoolExecutor(max_workers=1) as executor:
