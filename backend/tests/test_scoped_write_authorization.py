@@ -13,7 +13,9 @@ from app.services.scoped_write_authorization import (
     ScopedWriteAccessDenied,
     ScopedWriteResourceNotFound,
     lock_department_write_access,
-    revoke_department_assignment,
+)
+from app.services.privileged_administrator_mutation import (
+    stage_department_assignment_revocation,
 )
 
 
@@ -38,7 +40,13 @@ def authorization_data():
             role="department_admin",
             is_active=True,
         )
-        db.add_all([role, college, other_college, user])
+        super_user = User(
+            email="scoped-write-super@example.com",
+            hashed_password="unused",
+            role="super_admin",
+            is_active=True,
+        )
+        db.add_all([role, college, other_college, user, super_user])
         db.flush()
         departments = {
             "first": Department(name="First", college_id=college.id),
@@ -69,6 +77,7 @@ def authorization_data():
         db.commit()
         ids = {
             "user": user.id,
+            "super_user": super_user.id,
             "administrator": administrator.id,
             "departments": {name: value.id for name, value in departments.items()},
         }
@@ -134,9 +143,9 @@ def test_missing_or_revoked_assignment_is_denied(authorization_data):
                 db, ids["user"], ids["departments"]["other"]
             )
 
-        assert revoke_department_assignment(
+        assert stage_department_assignment_revocation(
             db,
-            ids["user"],
+            ids["super_user"],
             ids["administrator"],
             ids["departments"]["first"],
         )
@@ -216,9 +225,9 @@ def test_cross_college_assignment_fails_closed(authorization_data):
 def test_revocation_uses_compatible_order_and_never_commits(authorization_data):
     engine, ids = authorization_data
     with Session(engine) as db:
-        assert revoke_department_assignment(
+        assert stage_department_assignment_revocation(
             db,
-            ids["user"],
+            ids["super_user"],
             ids["administrator"],
             ids["departments"]["first"],
         )

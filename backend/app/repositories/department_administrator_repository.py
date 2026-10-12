@@ -24,3 +24,14 @@ class DepartmentAdministratorRepository(BaseRepository[DepartmentAdministrator])
             .limit(limit)
         )
         return list(self.db.scalars(stmt).all())
+
+    def update(
+        self,
+        db_obj: DepartmentAdministrator,
+        obj_in: dict,
+    ) -> DepartmentAdministrator:
+        if "user_id" in obj_in:
+            raise ValueError(
+                "Use the privileged administrator mutation service for user_id"
+            )
+        return super().update(db_obj, obj_in)

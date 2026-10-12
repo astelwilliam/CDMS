@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.association_tables import department_administrator_departments
@@ -106,60 +106,3 @@ def lock_department_write_access(
         administrator=administrator,
         department=department,
     )
-
-
-def revoke_department_assignment(
-    db: Session,
-    user_id: str,
-    administrator_id: str,
-    department_id: str,
-) -> bool:
-    """Stage assignment revocation using the scoped-write lock order."""
-    user = db.scalar(
-        select(User).where(User.id == user_id).with_for_update()
-    )
-    if user is None:
-        return False
-
-    administrator = db.scalar(
-        select(DepartmentAdministrator)
-        .where(
-            DepartmentAdministrator.id == administrator_id,
-            DepartmentAdministrator.user_id == user.id,
-        )
-        .with_for_update()
-    )
-    if administrator is None:
-        return False
-
-    department = db.scalar(
-        select(Department)
-        .where(Department.id == department_id)
-        .with_for_update()
-    )
-    if department is None:
-        return False
-
-    assignment = db.execute(
-        select(
-            department_administrator_departments.c.department_administrator_id,
-            department_administrator_departments.c.department_id,
-        )
-        .where(
-            department_administrator_departments.c.department_administrator_id
-            == administrator.id,
-            department_administrator_departments.c.department_id == department.id,
-        )
-        .with_for_update()
-    ).first()
-    if assignment is None:
-        return False
-
-    db.execute(
-        delete(department_administrator_departments).where(
-            department_administrator_departments.c.department_administrator_id
-            == administrator.id,
-            department_administrator_departments.c.department_id == department.id,
-        )
-    )
-    return True

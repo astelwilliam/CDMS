@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 from sqlalchemy.schema import CreateSchema, DropSchema
@@ -22,7 +22,11 @@ from app.services.scoped_write_authorization import (
     ScopedWriteAccessDenied,
     ScopedWriteResourceNotFound,
     lock_department_write_access,
-    revoke_department_assignment,
+)
+from app.services.privileged_administrator_mutation import (
+    stage_administrator_identity_change,
+    stage_department_assignment,
+    stage_department_assignment_revocation,
 )
 from app.services.privileged_user_mutation import (
     stage_user_activation_change,
@@ -190,9 +194,9 @@ def revoke_in_new_session(engine, ids, started: threading.Event) -> bool:
     with Session(engine) as db:
         set_lock_timeout(db)
         started.set()
-        revoked = revoke_department_assignment(
+        revoked = stage_department_assignment_revocation(
             db,
-            ids["user"],
+            ids["super_user"],
             ids["administrator"],
             ids["department"],
         )
@@ -200,13 +204,27 @@ def revoke_in_new_session(engine, ids, started: threading.Event) -> bool:
         return revoked
 
 
+def assign_in_new_session(engine, ids, started: threading.Event) -> bool:
+    with Session(engine) as db:
+        set_lock_timeout(db)
+        started.set()
+        assigned = stage_department_assignment(
+            db,
+            ids["super_user"],
+            ids["administrator"],
+            ids["outside_department"],
+        )
+        db.commit()
+        return assigned
+
+
 def test_revocation_first_denies_scoped_mutation(concurrency_data):
     engine, ids = concurrency_data
     with Session(engine) as revocation_db:
         set_lock_timeout(revocation_db)
-        assert revoke_department_assignment(
+        assert stage_department_assignment_revocation(
             revocation_db,
-            ids["user"],
+            ids["super_user"],
             ids["administrator"],
             ids["department"],
         )
@@ -247,6 +265,31 @@ def test_write_first_blocks_revocation_until_commit(concurrency_data):
             lock_department_write_access(
                 verification_db, ids["user"], ids["department"]
             )
+
+
+def test_locked_authorization_blocks_assignment_creation_until_commit(
+    concurrency_data,
+):
+    engine, ids = concurrency_data
+    started = threading.Event()
+    with Session(engine) as authorization_db, ThreadPoolExecutor(max_workers=1) as executor:
+        set_lock_timeout(authorization_db)
+        lock_department_write_access(
+            authorization_db, ids["user"], ids["department"]
+        )
+
+        future = executor.submit(assign_in_new_session, engine, ids, started)
+        assert started.wait(WAIT_SECONDS)
+        with pytest.raises(FutureTimeoutError):
+            future.result(timeout=0.25)
+        authorization_db.commit()
+        assert future.result(timeout=WAIT_SECONDS)
+
+    with Session(engine) as verification_db:
+        access = lock_department_write_access(
+            verification_db, ids["user"], ids["outside_department"]
+        )
+        assert access.department.id == ids["outside_department"]
 
 
 def test_rolled_back_write_does_not_survive_waiting_revocation(concurrency_data):
@@ -327,22 +370,12 @@ def test_identity_relink_waits_for_locked_authorization(concurrency_data):
         with Session(engine) as db:
             set_lock_timeout(db)
             started.set()
-            users = list(
-                db.scalars(
-                    select(User)
-                    .where(User.id.in_([ids["user"], ids["new_user"]]))
-                    .order_by(User.id)
-                    .with_for_update()
-                )
+            stage_administrator_identity_change(
+                db,
+                ids["super_user"],
+                ids["administrator"],
+                ids["new_user"],
             )
-            assert len(users) == 2
-            administrator = db.scalar(
-                select(DepartmentAdministrator)
-                .where(DepartmentAdministrator.id == ids["administrator"])
-                .with_for_update()
-            )
-            assert administrator.user_id == ids["user"]
-            administrator.user_id = ids["new_user"]
             db.commit()
 
     with Session(engine) as authorization_db, ThreadPoolExecutor(max_workers=1) as executor:
