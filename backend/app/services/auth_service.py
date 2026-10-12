@@ -23,19 +23,17 @@ class AuthService:
         """
         user = self.user_repo.get_by_email(login_data.email)
         
-        if not user or not verify_password(login_data.password, user.hashed_password):
+        if (
+            not user
+            or not verify_password(login_data.password, user.hashed_password)
+            or not user.is_active
+        ):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect email or password",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        if not user.is_active:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Inactive user"
-            )
-
         access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = create_access_token(
             data={"sub": user.id, "email": user.email, "role": user.role},
@@ -49,10 +47,11 @@ class AuthService:
         Retrieve the current authenticated user.
         """
         user = self.user_repo.get(user_id)
-        if not user:
+        if not user or not user.is_active:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials"
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
             )
         return CurrentUser.model_validate(user)
 
