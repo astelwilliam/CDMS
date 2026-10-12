@@ -4,6 +4,10 @@ from typing import List
 from app.api.deps.database import get_db
 from app.api.schemas.department_administrator import DepartmentAdministratorCreate, DepartmentAdministratorUpdate, DepartmentAdministratorRead
 from app.repositories.department_administrator_repository import DepartmentAdministratorRepository
+from app.services.administrative_deletion import (
+    AdministrativeDeletionDisabled,
+    DELETION_DISABLED_DETAIL,
+)
 
 router = APIRouter(prefix="/department_administrators", tags=["Department Administrators"])
 
@@ -41,5 +45,10 @@ def update_admin(admin_id: str, admin_in: DepartmentAdministratorUpdate, db: Ses
 @router.delete("/{admin_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_admin(admin_id: str, db: Session = Depends(get_db)):
     repo = DepartmentAdministratorRepository(db)
-    if not repo.delete(admin_id):
-        raise HTTPException(status_code=404, detail="Department administrator not found")
+    try:
+        repo.delete(admin_id)
+    except AdministrativeDeletionDisabled as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=DELETION_DISABLED_DETAIL,
+        ) from exc

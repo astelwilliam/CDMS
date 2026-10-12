@@ -9,6 +9,10 @@ from app.api.deps.auth import (
 )
 from app.api.schemas.department import DepartmentCreate, DepartmentUpdate, DepartmentRead
 from app.repositories.department_repository import DepartmentRepository
+from app.services.administrative_deletion import (
+    AdministrativeDeletionDisabled,
+    DELETION_DISABLED_DETAIL,
+)
 
 router = APIRouter(prefix="/departments", tags=["Departments"])
 
@@ -74,5 +78,10 @@ def update_department(department_id: str, department_in: DepartmentUpdate, db: S
 )
 def delete_department(department_id: str, db: Session = Depends(get_db)):
     repo = DepartmentRepository(db)
-    if not repo.delete(department_id):
-        raise HTTPException(status_code=404, detail="Department not found")
+    try:
+        repo.delete(department_id)
+    except AdministrativeDeletionDisabled as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=DELETION_DISABLED_DETAIL,
+        ) from exc

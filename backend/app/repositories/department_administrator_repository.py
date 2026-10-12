@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.models.department_administrator import DepartmentAdministrator
 from app.repositories.base import BaseRepository
+from app.services.administrative_deletion import AdministrativeDeletionDisabled
 
 
 class DepartmentAdministratorRepository(BaseRepository[DepartmentAdministrator]):
@@ -10,6 +11,9 @@ class DepartmentAdministratorRepository(BaseRepository[DepartmentAdministrator])
 
     def __init__(self, db: Session):
         super().__init__(DepartmentAdministrator, db)
+
+    def delete(self, id: str) -> bool:
+        raise AdministrativeDeletionDisabled
 
     def get_by_email(self, email: str) -> Optional[DepartmentAdministrator]:
         stmt = select(DepartmentAdministrator).where(DepartmentAdministrator.email == email)
