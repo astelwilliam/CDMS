@@ -66,16 +66,26 @@ def boundary():
         with Session(engine) as db:
             active = User(
                 email="boundary@example.com", hashed_password=hash_password("test-password"),
-                role="department_admin", is_active=True,
+                role="super_admin", is_active=True,
             )
             inactive = User(
                 email="inactive-boundary@example.com", hashed_password=active.hashed_password,
-                role="department_admin", is_active=False,
+                role="super_admin", is_active=False,
             )
-            db.add_all([active, inactive])
+            department = User(
+                email="department-boundary@example.com", hashed_password=active.hashed_password,
+                role="department_admin", is_active=True,
+            )
+            unknown = User(
+                email="unknown-boundary@example.com", hashed_password=active.hashed_password,
+                role="unrecognized_role", is_active=True,
+            )
+            db.add_all([active, inactive, department, unknown])
             db.commit()
             tokens = {
-                "valid": create_access_token({"sub": active.id}),
+                "valid": create_access_token({"sub": active.id, "role": active.role}),
+                "department": create_access_token({"sub": department.id, "role": department.role}),
+                "unknown": create_access_token({"sub": unknown.id, "role": "super_admin"}),
                 "inactive": create_access_token({"sub": inactive.id}),
                 "expired": create_access_token(
                     {"sub": active.id}, expires_delta=timedelta(minutes=-1)
@@ -91,7 +101,7 @@ def boundary():
         app.dependency_overrides[get_db] = isolated_db
         try:
             with TestClient(app) as client:
-                yield client, tokens, app
+                yield client, tokens, app, engine
         finally:
             app.dependency_overrides.clear()
             app.dependency_overrides.update(previous_overrides)
@@ -99,7 +109,7 @@ def boundary():
 
 
 def test_inventory_matches_registered_business_operations(boundary):
-    _, _, app = boundary
+    _, _, app, _ = boundary
     actual = {
         (method, route.path)
         for route in app.routes
@@ -115,7 +125,7 @@ def test_inventory_matches_registered_business_operations(boundary):
 def test_every_business_operation_rejects_unauthorized_requests(
     boundary, method, path, credential
 ):
-    client, tokens, _ = boundary
+    client, tokens, _, _ = boundary
     headers = {} if credential == "missing" else {
         "Authorization": f"Bearer {tokens[credential]}"
     }
@@ -128,8 +138,8 @@ def test_every_business_operation_rejects_unauthorized_requests(
 
 
 @pytest.mark.parametrize("module,prefix,parameter", ROUTERS)
-def test_active_user_can_list_each_business_router(boundary, module, prefix, parameter):
-    client, tokens, _ = boundary
+def test_super_admin_can_list_each_business_router(boundary, module, prefix, parameter):
+    client, tokens, _, _ = boundary
     response = client.get(
         f"/{prefix}/", headers={"Authorization": f"Bearer {tokens['valid']}"}
     )
@@ -138,7 +148,7 @@ def test_active_user_can_list_each_business_router(boundary, module, prefix, par
 
 
 def test_authenticated_representative_crud(boundary):
-    client, tokens, _ = boundary
+    client, tokens, _, _ = boundary
     headers = {"Authorization": f"Bearer {tokens['valid']}"}
     response = client.post("/colleges/", headers=headers, json={"name": "Boundary college"})
     assert response.status_code == 201
@@ -152,7 +162,7 @@ def test_authenticated_representative_crud(boundary):
 
 
 def test_login_remains_public(boundary):
-    client, _, _ = boundary
+    client, _, _, _ = boundary
     response = client.post(
         "/auth/login",
         data={"username": "boundary@example.com", "password": "test-password"},
@@ -166,5 +176,93 @@ def test_login_remains_public(boundary):
     "/health", "/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"
 ])
 def test_explicit_public_endpoints_remain_accessible(boundary, path):
-    client, _, _ = boundary
+    client, _, _, _ = boundary
     assert client.get(path).status_code == 200
+
+
+@pytest.mark.parametrize("method,path", OPERATIONS)
+@pytest.mark.parametrize("credential", ["department", "unknown"])
+def test_non_super_admin_rejected_on_every_business_operation(boundary, method, path, credential):
+    client, tokens, _, _ = boundary
+    response = client.request(
+        method, re.sub(r"\{[^}]+\}", "missing-record", path),
+        headers={"Authorization": f"Bearer {tokens[credential]}"}, json={},
+    )
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Access denied. Required role: super_admin"}
+
+
+@pytest.mark.parametrize("role", ["department_admin", "unrecognized_role", "SUPER_ADMIN", ""])
+def test_database_role_changes_override_stale_super_admin_claim(boundary, role):
+    from app.core.security import decode_access_token
+    from app.models.user import User
+
+    client, tokens, _, engine = boundary
+    token = tokens["valid"]
+    user_id = decode_access_token(token)["sub"]
+    headers = {"Authorization": f"Bearer {token}"}
+    assert client.get("/colleges/", headers=headers).status_code == 200
+    try:
+        with Session(engine) as db:
+            db.get(User, user_id).role = role
+            db.commit()
+        assert client.get("/colleges/", headers=headers).status_code == 403
+    finally:
+        with Session(engine) as db:
+            db.get(User, user_id).role = "super_admin"
+            db.commit()
+    assert client.get("/colleges/", headers=headers).status_code == 200
+
+
+def test_database_promotion_overrides_stale_department_claim(boundary):
+    from app.core.security import decode_access_token
+    from app.models.user import User
+
+    client, tokens, _, engine = boundary
+    token = tokens["department"]
+    user_id = decode_access_token(token)["sub"]
+    headers = {"Authorization": f"Bearer {token}"}
+    assert client.get("/colleges/", headers=headers).status_code == 403
+    try:
+        with Session(engine) as db:
+            db.get(User, user_id).role = "super_admin"
+            db.commit()
+        assert client.get("/colleges/", headers=headers).status_code == 200
+    finally:
+        with Session(engine) as db:
+            db.get(User, user_id).role = "department_admin"
+            db.commit()
+    assert client.get("/colleges/", headers=headers).status_code == 403
+
+
+def test_department_admin_retains_own_profile_and_password_change(boundary):
+    from app.core.security import decode_access_token, verify_password
+    from app.models.user import User
+
+    client, tokens, _, engine = boundary
+    headers = {"Authorization": f"Bearer {tokens['department']}"}
+    user_id = decode_access_token(tokens["department"])["sub"]
+    response = client.get("/auth/me", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["id"] == user_id
+    assert response.json()["role"] == "department_admin"
+    with Session(engine) as db:
+        original_hash = db.get(User, user_id).hashed_password
+        admin_id = decode_access_token(tokens["valid"])["sub"]
+        admin_hash = db.get(User, admin_id).hashed_password
+    try:
+        response = client.post(
+            "/auth/change-password", headers=headers,
+            json={"current_password": "test-password", "new_password": "new-department-password"},
+        )
+        assert response.status_code == 200
+        assert response.json() == {"message": "Password changed successfully"}
+        with Session(engine) as db:
+            new_hash = db.get(User, user_id).hashed_password
+            assert verify_password("new-department-password", new_hash)
+            assert not verify_password("test-password", new_hash)
+            assert db.get(User, admin_id).hashed_password == admin_hash
+    finally:
+        with Session(engine) as db:
+            db.get(User, user_id).hashed_password = original_hash
+            db.commit()
