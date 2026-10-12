@@ -122,3 +122,13 @@ def get_department_administrator_context(
         department_ids=frozenset(department_id for department_id, _ in assignments),
         college_id=next(iter(college_ids)),
     )
+
+
+def get_department_read_context(
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Optional[DepartmentAdministratorContext]:
+    """Return scoped department access, or unrestricted access for super admins."""
+    if current_user.role == "super_admin":
+        return None
+    return get_department_administrator_context(current_user=current_user, db=db)

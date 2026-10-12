@@ -189,7 +189,14 @@ def test_non_super_admin_rejected_on_every_business_operation(boundary, method, 
         headers={"Authorization": f"Bearer {tokens[credential]}"}, json={},
     )
     assert response.status_code == 403
-    assert response.json() == {"detail": "Access denied. Required role: super_admin"}
+    if method == "GET" and path.startswith("/departments"):
+        assert response.json() == {
+            "detail": "Department administrator access unavailable"
+        }
+    else:
+        assert response.json() == {
+            "detail": "Access denied. Required role: super_admin"
+        }
 
 
 @pytest.mark.parametrize("role", ["department_admin", "unrecognized_role", "SUPER_ADMIN", ""])
