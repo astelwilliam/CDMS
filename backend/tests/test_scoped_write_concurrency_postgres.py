@@ -5,8 +5,9 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, select, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from sqlalchemy.schema import CreateSchema, DropSchema
 
@@ -18,6 +19,11 @@ from app.models.faculty_member import FacultyMember
 from app.models.role import Role
 from app.models.user import User
 from app.repositories.faculty_member_repository import FacultyMemberRepository
+from app.repositories.department_administrator_repository import (
+    DepartmentAdministratorRepository,
+)
+from app.repositories.department_repository import DepartmentRepository
+from app.services.administrative_deletion import AdministrativeDeletionDisabled
 from app.services.scoped_write_authorization import (
     ScopedWriteAccessDenied,
     ScopedWriteResourceNotFound,
@@ -31,6 +37,13 @@ from app.services.privileged_administrator_mutation import (
 from app.services.privileged_user_mutation import (
     stage_user_activation_change,
     stage_user_role_change,
+)
+from app.services.privileged_faculty_mutation import (
+    FacultyMutationTargetNotFound,
+    PrivilegedFacultyMutationDenied,
+    create_faculty_as_super_admin,
+    soft_delete_faculty_as_super_admin,
+    update_faculty_as_super_admin,
 )
 from app.core.config import settings
 
@@ -94,6 +107,7 @@ def concurrency_data(postgres_engine):
             "user",
             "new_user",
             "super_user",
+            "control_super_user",
             "administrator",
             "college",
             "department",
@@ -124,6 +138,13 @@ def concurrency_data(postgres_engine):
                 User(
                     id=ids["super_user"],
                     email=f"super-{suffix}@example.com",
+                    hashed_password="unused",
+                    role="super_admin",
+                    is_active=True,
+                ),
+                User(
+                    id=ids["control_super_user"],
+                    email=f"control-super-{suffix}@example.com",
                     hashed_password="unused",
                     role="super_admin",
                     is_active=True,
@@ -216,6 +237,23 @@ def assign_in_new_session(engine, ids, started: threading.Event) -> bool:
         )
         db.commit()
         return assigned
+
+
+def update_faculty_in_new_session(
+    engine,
+    ids,
+    started: threading.Event,
+    name: str,
+):
+    with Session(engine) as db:
+        set_lock_timeout(db)
+        started.set()
+        return update_faculty_as_super_admin(
+            db,
+            ids["super_user"],
+            ids["faculty"],
+            {"name": name},
+        )
 
 
 def test_revocation_first_denies_scoped_mutation(concurrency_data):
@@ -415,3 +453,224 @@ def test_cross_department_and_soft_deleted_department_are_denied(concurrency_dat
             lock_department_write_access(
                 db, ids["user"], ids["deleted_department"]
             )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["role", "deactivation"],
+)
+def test_committed_account_change_denies_waiting_production_faculty_write(
+    concurrency_data, mutation
+):
+    engine, ids = concurrency_data
+    started = threading.Event()
+
+    with Session(engine) as account_db, ThreadPoolExecutor(max_workers=1) as executor:
+        set_lock_timeout(account_db)
+        if mutation == "role":
+            stage_user_role_change(
+                account_db,
+                ids["control_super_user"],
+                ids["super_user"],
+                "department_admin",
+            )
+        else:
+            stage_user_activation_change(
+                account_db,
+                ids["control_super_user"],
+                ids["super_user"],
+                False,
+            )
+
+        future = executor.submit(
+            update_faculty_in_new_session,
+            engine,
+            ids,
+            started,
+            "Must Be Denied",
+        )
+        assert started.wait(WAIT_SECONDS)
+        with pytest.raises(FutureTimeoutError):
+            future.result(timeout=0.25)
+        account_db.commit()
+        with pytest.raises(PrivilegedFacultyMutationDenied):
+            future.result(timeout=WAIT_SECONDS)
+
+    with Session(engine) as verification_db:
+        assert verification_db.get(FacultyMember, ids["faculty"]).name == "Original"
+
+
+def test_production_faculty_update_waits_for_department_lock(concurrency_data):
+    engine, ids = concurrency_data
+    started = threading.Event()
+
+    with Session(engine) as department_db, ThreadPoolExecutor(max_workers=1) as executor:
+        set_lock_timeout(department_db)
+        department_db.scalar(
+            select(Department)
+            .where(Department.id == ids["department"])
+            .with_for_update()
+        )
+        future = executor.submit(
+            update_faculty_in_new_session,
+            engine,
+            ids,
+            started,
+            "Committed After Department Lock",
+        )
+        assert started.wait(WAIT_SECONDS)
+        with pytest.raises(FutureTimeoutError):
+            future.result(timeout=0.25)
+        department_db.commit()
+        faculty = future.result(timeout=WAIT_SECONDS)
+        assert faculty.name == "Committed After Department Lock"
+
+    with Session(engine) as verification_db:
+        assert (
+            verification_db.get(FacultyMember, ids["faculty"]).name
+            == "Committed After Department Lock"
+        )
+
+
+def test_production_soft_delete_waits_for_faculty_lock(concurrency_data):
+    engine, ids = concurrency_data
+    started = threading.Event()
+
+    def soft_delete_in_new_session():
+        with Session(engine) as db:
+            set_lock_timeout(db)
+            started.set()
+            soft_delete_faculty_as_super_admin(
+                db, ids["super_user"], ids["faculty"]
+            )
+
+    with Session(engine) as faculty_db, ThreadPoolExecutor(max_workers=1) as executor:
+        faculty_db.scalar(
+            select(FacultyMember)
+            .where(FacultyMember.id == ids["faculty"])
+            .with_for_update()
+        )
+        future = executor.submit(soft_delete_in_new_session)
+        assert started.wait(WAIT_SECONDS)
+        with pytest.raises(FutureTimeoutError):
+            future.result(timeout=0.25)
+        faculty_db.commit()
+        future.result(timeout=WAIT_SECONDS)
+
+    with Session(engine) as verification_db:
+        faculty = verification_db.get(FacultyMember, ids["faculty"])
+        assert faculty is not None
+        assert faculty.deleted_at is not None
+
+
+def test_production_faculty_lock_timeout_rolls_back(concurrency_data):
+    engine, ids = concurrency_data
+    started = threading.Event()
+
+    with Session(engine) as department_db, ThreadPoolExecutor(max_workers=1) as executor:
+        department_db.scalar(
+            select(Department)
+            .where(Department.id == ids["department"])
+            .with_for_update()
+        )
+        future = executor.submit(
+            update_faculty_in_new_session,
+            engine,
+            ids,
+            started,
+            "Must Roll Back After Timeout",
+        )
+        assert started.wait(WAIT_SECONDS)
+        with pytest.raises(OperationalError) as error:
+            future.result(timeout=WAIT_SECONDS)
+        sqlstate = getattr(error.value.orig, "sqlstate", None) or getattr(
+            error.value.orig, "pgcode", None
+        )
+        assert sqlstate == "55P03"
+        department_db.rollback()
+
+    with Session(engine) as verification_db:
+        assert verification_db.get(FacultyMember, ids["faculty"]).name == "Original"
+
+
+def test_production_faculty_service_uses_global_lock_order(concurrency_data):
+    engine, ids = concurrency_data
+    locked_tables = []
+
+    with Session(engine) as db:
+        def record_lock(execute_state):
+            statement = execute_state.statement
+            if getattr(statement, "_for_update_arg", None) is None:
+                return
+            sql = " ".join(statement.compile().string.lower().split())
+            for table_name, label in (
+                ("users", "users"),
+                ("departments", "departments"),
+                ("faculty_members", "faculty"),
+            ):
+                if f" from {table_name} " in f" {sql} ":
+                    locked_tables.append(label)
+                    break
+
+        event.listen(db, "do_orm_execute", record_lock)
+        try:
+            update_faculty_as_super_admin(
+                db,
+                ids["super_user"],
+                ids["faculty"],
+                {"name": "Lock Order Verified"},
+            )
+        finally:
+            event.remove(db, "do_orm_execute", record_lock)
+
+    assert locked_tables == ["users", "departments", "faculty"]
+
+
+def test_production_create_rejects_deleted_department_without_partial_insert(
+    concurrency_data,
+):
+    engine, ids = concurrency_data
+    with Session(engine) as db:
+        with pytest.raises(FacultyMutationTargetNotFound):
+            create_faculty_as_super_admin(
+                db,
+                ids["super_user"],
+                ids["deleted_department"],
+                {"name": "Must Not Be Created"},
+            )
+        assert not db.in_transaction()
+
+    with Session(engine) as verification_db:
+        assert verification_db.scalar(
+            select(FacultyMember.id).where(
+                FacultyMember.name == "Must Not Be Created"
+            )
+        ) is None
+
+
+def test_administrative_deletion_guards_preserve_related_rows(concurrency_data):
+    engine, ids = concurrency_data
+    with Session(engine) as db:
+        with pytest.raises(AdministrativeDeletionDisabled):
+            DepartmentRepository(db).delete(ids["department"])
+        with pytest.raises(AdministrativeDeletionDisabled):
+            DepartmentAdministratorRepository(db).delete(ids["administrator"])
+        db.rollback()
+
+    with Session(engine) as verification_db:
+        assert verification_db.get(Department, ids["department"]) is not None
+        assert (
+            verification_db.get(
+                DepartmentAdministrator, ids["administrator"]
+            )
+            is not None
+        )
+        assert verification_db.get(FacultyMember, ids["faculty"]) is not None
+        assert verification_db.scalar(
+            select(department_administrator_departments.c.department_id).where(
+                department_administrator_departments.c.department_administrator_id
+                == ids["administrator"],
+                department_administrator_departments.c.department_id
+                == ids["department"],
+            )
+        ) == ids["department"]
