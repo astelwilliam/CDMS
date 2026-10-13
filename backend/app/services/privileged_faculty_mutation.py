@@ -8,10 +8,19 @@ from app.models.department import Department
 from app.models.faculty_member import FacultyMember
 from app.models.user import User
 from app.repositories.faculty_member_repository import FacultyMemberRepository
+from app.services.scoped_write_authorization import (
+    ScopedWriteAccessDenied,
+    ScopedWriteResourceNotFound,
+    lock_department_write_access,
+)
 
 
 class PrivilegedFacultyMutationDenied(Exception):
     """The current database user is not an active super administrator."""
+
+
+class DepartmentFacultyMutationDenied(Exception):
+    """The current database user has no valid department-admin identity."""
 
 
 class FacultyMutationTargetNotFound(Exception):
@@ -91,6 +100,29 @@ def create_faculty_as_super_admin(
         db.commit()
         db.refresh(faculty)
         return faculty
+    except Exception as error:
+        _rollback_and_raise(db, error)
+
+
+def create_faculty_as_department_admin(
+    db: Session,
+    user_id: str,
+    department_id: str,
+    values: Mapping[str, object],
+) -> FacultyMember:
+    repository = FacultyMemberRepository(db)
+    try:
+        access = lock_department_write_access(db, user_id, department_id)
+        faculty = repository.add_for_scoped_write(access.department.id, values)
+        db.commit()
+        db.refresh(faculty)
+        return faculty
+    except ScopedWriteAccessDenied as error:
+        db.rollback()
+        raise DepartmentFacultyMutationDenied from error
+    except ScopedWriteResourceNotFound as error:
+        db.rollback()
+        raise FacultyMutationTargetNotFound from error
     except Exception as error:
         _rollback_and_raise(db, error)
 

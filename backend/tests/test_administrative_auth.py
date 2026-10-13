@@ -56,6 +56,8 @@ def boundary():
         from app.api.deps.database import get_db
         from app.core.security import create_access_token, hash_password
         from app.db.session import Base
+        from app.models.college import College
+        from app.models.department import Department
         from app.models.user import User
 
         engine = create_engine(
@@ -80,7 +82,14 @@ def boundary():
                 email="unknown-boundary@example.com", hashed_password=active.hashed_password,
                 role="unrecognized_role", is_active=True,
             )
-            db.add_all([active, inactive, department, unknown])
+            college = College(name="Authorization Boundary College")
+            db.add_all([active, inactive, department, unknown, college])
+            db.flush()
+            faculty_department = Department(
+                name="Authorization Boundary Department",
+                college_id=college.id,
+            )
+            db.add(faculty_department)
             db.commit()
             tokens = {
                 "valid": create_access_token({"sub": active.id, "role": active.role}),
@@ -91,6 +100,8 @@ def boundary():
                     {"sub": active.id}, expires_delta=timedelta(minutes=-1)
                 ),
                 "invalid": "not-a-valid-jwt",
+                "faculty_department_id": faculty_department.id,
+                "college_id": college.id,
             }
 
         def isolated_db():
@@ -144,7 +155,14 @@ def test_super_admin_can_list_each_business_router(boundary, module, prefix, par
         f"/{prefix}/", headers={"Authorization": f"Bearer {tokens['valid']}"}
     )
     assert response.status_code == 200
-    assert response.json() == []
+    if module == "college":
+        assert tokens["college_id"] in {item["id"] for item in response.json()}
+    elif module == "department":
+        assert tokens["faculty_department_id"] in {
+            item["id"] for item in response.json()
+        }
+    else:
+        assert response.json() == []
 
 
 def test_authenticated_representative_mutations_preserve_college_deletion_guard(
@@ -190,12 +208,23 @@ def test_explicit_public_endpoints_remain_accessible(boundary, path):
 @pytest.mark.parametrize("credential", ["department", "unknown"])
 def test_non_super_admin_rejected_on_every_business_operation(boundary, method, path, credential):
     client, tokens, _, _ = boundary
+    is_faculty_create = method == "POST" and path == "/faculty_members/"
+    payload = (
+        {
+            "name": "Unauthorized faculty",
+            "department_id": tokens["faculty_department_id"],
+        }
+        if is_faculty_create
+        else {}
+    )
     response = client.request(
         method, re.sub(r"\{[^}]+\}", "missing-record", path),
-        headers={"Authorization": f"Bearer {tokens[credential]}"}, json={},
+        headers={"Authorization": f"Bearer {tokens[credential]}"}, json=payload,
     )
     assert response.status_code == 403
-    if method == "GET" and path.startswith(("/departments", "/faculty_members")):
+    if is_faculty_create or (
+        method == "GET" and path.startswith(("/departments", "/faculty_members"))
+    ):
         assert response.json() == {
             "detail": "Department administrator access unavailable"
         }
@@ -203,6 +232,30 @@ def test_non_super_admin_rejected_on_every_business_operation(boundary, method, 
         assert response.json() == {
             "detail": "Access denied. Required role: super_admin"
         }
+
+
+@pytest.mark.parametrize("credential", ["department", "unknown"])
+def test_invalid_faculty_creator_cannot_persist_with_valid_payload(
+    boundary, credential
+):
+    from app.models.faculty_member import FacultyMember
+
+    client, tokens, _, engine = boundary
+    with Session(engine) as db:
+        before = db.query(FacultyMember).count()
+
+    response = client.post(
+        "/faculty_members/",
+        headers={"Authorization": f"Bearer {tokens[credential]}"},
+        json={
+            "name": "Must Not Be Created",
+            "department_id": tokens["faculty_department_id"],
+        },
+    )
+
+    assert response.status_code == 403
+    with Session(engine) as db:
+        assert db.query(FacultyMember).count() == before
 
 
 @pytest.mark.parametrize("role", ["department_admin", "unrecognized_role", "SUPER_ADMIN", ""])

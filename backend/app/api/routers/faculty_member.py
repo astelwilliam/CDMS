@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from app.api.deps.auth import (
     DepartmentAdministratorContext,
+    get_current_user,
     get_current_super_admin,
     get_department_read_context,
 )
@@ -11,9 +12,11 @@ from app.api.schemas.faculty_member import FacultyMemberCreate, FacultyMemberUpd
 from app.api.schemas.auth import CurrentUser
 from app.repositories.faculty_member_repository import FacultyMemberRepository
 from app.services.privileged_faculty_mutation import (
+    DepartmentFacultyMutationDenied,
     FacultyMutationTargetNotFound,
     FacultyMutationTemporarilyUnavailable,
     PrivilegedFacultyMutationDenied,
+    create_faculty_as_department_admin,
     create_faculty_as_super_admin,
     soft_delete_faculty_as_super_admin,
     update_faculty_as_super_admin,
@@ -68,18 +71,29 @@ def get_faculty_member(
 def create_faculty_member(
     faculty_in: FacultyMemberCreate,
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_current_super_admin),
+    current_user: CurrentUser = Depends(get_current_user),
 ):
     values = faculty_in.model_dump()
     department_id = values.pop("department_id")
     try:
-        return create_faculty_as_super_admin(
-            db, current_user.id, department_id, values
-        )
+        if current_user.role == "super_admin":
+            return create_faculty_as_super_admin(
+                db, current_user.id, department_id, values
+            )
+        if current_user.role == "department_admin":
+            return create_faculty_as_department_admin(
+                db, current_user.id, department_id, values
+            )
+        raise DepartmentFacultyMutationDenied
     except FacultyMutationTargetNotFound as exc:
         raise HTTPException(status_code=404, detail="Department not found") from exc
     except PrivilegedFacultyMutationDenied as exc:
         raise HTTPException(status_code=403, detail="Access denied") from exc
+    except DepartmentFacultyMutationDenied as exc:
+        raise HTTPException(
+            status_code=403,
+            detail="Department administrator access unavailable",
+        ) from exc
     except FacultyMutationTemporarilyUnavailable as exc:
         _raise_temporary_failure(exc)
 

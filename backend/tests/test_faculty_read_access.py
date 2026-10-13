@@ -252,7 +252,6 @@ def test_assignment_revocation_applies_on_next_request(faculty_access):
 @pytest.mark.parametrize(
     "method,path",
     [
-        ("POST", "/faculty_members/"),
         ("PUT", "/faculty_members/faculty-a"),
         ("DELETE", "/faculty_members/faculty-a"),
     ],

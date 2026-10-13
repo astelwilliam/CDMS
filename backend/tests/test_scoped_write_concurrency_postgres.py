@@ -43,6 +43,7 @@ from app.services.privileged_faculty_mutation import (
     FacultyMutationTargetNotFound,
     FacultyMutationTemporarilyUnavailable,
     PrivilegedFacultyMutationDenied,
+    create_faculty_as_department_admin,
     create_faculty_as_super_admin,
     soft_delete_faculty_as_super_admin,
     update_faculty_as_super_admin,
@@ -258,6 +259,46 @@ def update_faculty_in_new_session(
         )
 
 
+def create_scoped_faculty_in_new_session(
+    engine,
+    ids,
+    name: str,
+    assignment_locked: threading.Event | None = None,
+    release_write: threading.Event | None = None,
+):
+    with Session(engine) as db:
+        set_lock_timeout(db)
+        connection = db.connection()
+
+        def pause_after_assignment_lock(
+            conn, cursor, statement, parameters, context, executemany
+        ):
+            normalized = " ".join(statement.lower().split())
+            if (
+                assignment_locked is not None
+                and "department_administrator_departments" in normalized
+                and "for update" in normalized
+            ):
+                assignment_locked.set()
+                assert release_write is not None
+                assert release_write.wait(WAIT_SECONDS)
+
+        if assignment_locked is not None:
+            event.listen(connection, "after_cursor_execute", pause_after_assignment_lock)
+        try:
+            return create_faculty_as_department_admin(
+                db,
+                ids["user"],
+                ids["department"],
+                {"name": name},
+            )
+        finally:
+            if assignment_locked is not None:
+                event.remove(
+                    connection, "after_cursor_execute", pause_after_assignment_lock
+                )
+
+
 def test_revocation_first_denies_scoped_mutation(concurrency_data):
     engine, ids = concurrency_data
     with Session(engine) as revocation_db:
@@ -280,6 +321,70 @@ def test_revocation_first_denies_scoped_mutation(concurrency_data):
 
     with Session(engine) as verification_db:
         assert verification_db.get(FacultyMember, ids["faculty"]).name == "Original"
+
+
+def test_revocation_first_denies_production_scoped_create(concurrency_data):
+    engine, ids = concurrency_data
+    with Session(engine) as revocation_db:
+        set_lock_timeout(revocation_db)
+        assert stage_department_assignment_revocation(
+            revocation_db,
+            ids["super_user"],
+            ids["administrator"],
+            ids["department"],
+        )
+        revocation_db.commit()
+
+    with pytest.raises(FacultyMutationTargetNotFound):
+        create_scoped_faculty_in_new_session(
+            engine, ids, "Revocation Must Win"
+        )
+
+    with Session(engine) as verification_db:
+        assert verification_db.scalar(
+            select(FacultyMember.id).where(
+                FacultyMember.name == "Revocation Must Win"
+            )
+        ) is None
+
+
+def test_production_scoped_create_blocks_revocation_until_commit(concurrency_data):
+    engine, ids = concurrency_data
+    assignment_locked = threading.Event()
+    release_write = threading.Event()
+    revocation_started = threading.Event()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        create_future = executor.submit(
+            create_scoped_faculty_in_new_session,
+            engine,
+            ids,
+            "Create Must Win",
+            assignment_locked,
+            release_write,
+        )
+        assert assignment_locked.wait(WAIT_SECONDS)
+        revoke_future = executor.submit(
+            revoke_in_new_session, engine, ids, revocation_started
+        )
+        assert revocation_started.wait(WAIT_SECONDS)
+        with pytest.raises(FutureTimeoutError):
+            revoke_future.result(timeout=0.25)
+        release_write.set()
+        created = create_future.result(timeout=WAIT_SECONDS)
+        assert created.name == "Create Must Win"
+        assert revoke_future.result(timeout=WAIT_SECONDS)
+
+    with Session(engine) as verification_db:
+        assert verification_db.get(FacultyMember, created.id) is not None
+        assert verification_db.scalar(
+            select(department_administrator_departments.c.department_id).where(
+                department_administrator_departments.c.department_administrator_id
+                == ids["administrator"],
+                department_administrator_departments.c.department_id
+                == ids["department"],
+            )
+        ) is None
 
 
 def test_write_first_blocks_revocation_until_commit(concurrency_data):

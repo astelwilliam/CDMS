@@ -304,7 +304,6 @@ def test_failed_update_rolls_back_the_staged_change(
 @pytest.mark.parametrize(
     "method,path,payload",
     [
-        ("POST", "/faculty_members/", {"name": "Denied", "department_id": "x"}),
         ("PUT", "/faculty_members/x", {"name": "Denied"}),
         ("DELETE", "/faculty_members/x", None),
     ],
