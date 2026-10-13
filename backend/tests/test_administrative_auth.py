@@ -147,7 +147,9 @@ def test_super_admin_can_list_each_business_router(boundary, module, prefix, par
     assert response.json() == []
 
 
-def test_authenticated_representative_crud(boundary):
+def test_authenticated_representative_mutations_preserve_college_deletion_guard(
+    boundary,
+):
     client, tokens, _, _ = boundary
     headers = {"Authorization": f"Bearer {tokens['valid']}"}
     response = client.post("/colleges/", headers=headers, json={"name": "Boundary college"})
@@ -157,8 +159,12 @@ def test_authenticated_representative_crud(boundary):
     response = client.put(path, headers=headers, json={"name": "Updated boundary college"})
     assert response.status_code == 200
     assert response.json()["name"] == "Updated boundary college"
-    assert client.delete(path, headers=headers).status_code == 204
-    assert client.get(path, headers=headers).status_code == 404
+    response = client.delete(path, headers=headers)
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "Deletion is disabled pending a secure administrative deletion policy"
+    }
+    assert client.get(path, headers=headers).status_code == 200
 
 
 def test_login_remains_public(boundary):

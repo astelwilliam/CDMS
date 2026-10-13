@@ -4,6 +4,10 @@ from typing import List
 from app.api.deps.database import get_db
 from app.api.schemas.college import CollegeCreate, CollegeUpdate, CollegeRead
 from app.repositories.college_repository import CollegeRepository
+from app.services.administrative_deletion import (
+    AdministrativeDeletionDisabled,
+    DELETION_DISABLED_DETAIL,
+)
 
 router = APIRouter(prefix="/colleges", tags=["Colleges"])
 
@@ -41,5 +45,10 @@ def update_college(college_id: str, college_in: CollegeUpdate, db: Session = Dep
 @router.delete("/{college_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_college(college_id: str, db: Session = Depends(get_db)):
     repo = CollegeRepository(db)
-    if not repo.delete(college_id):
-        raise HTTPException(status_code=404, detail="College not found")
+    try:
+        repo.delete(college_id)
+    except AdministrativeDeletionDisabled as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=DELETION_DISABLED_DETAIL,
+        ) from exc

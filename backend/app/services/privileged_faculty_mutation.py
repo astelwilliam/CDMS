@@ -1,6 +1,7 @@
 from collections.abc import Mapping
 
 from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.models.department import Department
@@ -15,6 +16,27 @@ class PrivilegedFacultyMutationDenied(Exception):
 
 class FacultyMutationTargetNotFound(Exception):
     """The faculty member or its active owning department is unavailable."""
+
+
+class FacultyMutationTemporarilyUnavailable(Exception):
+    """A transient database conflict aborted the complete mutation."""
+
+
+TRANSIENT_TRANSACTION_SQLSTATES = frozenset({"40P01", "40001", "55P03"})
+
+
+def _is_transient_transaction_failure(error: DBAPIError) -> bool:
+    sqlstate = getattr(error.orig, "sqlstate", None) or getattr(
+        error.orig, "pgcode", None
+    )
+    return sqlstate in TRANSIENT_TRANSACTION_SQLSTATES
+
+
+def _rollback_and_raise(db: Session, error: Exception) -> None:
+    db.rollback()
+    if isinstance(error, DBAPIError) and _is_transient_transaction_failure(error):
+        raise FacultyMutationTemporarilyUnavailable from error
+    raise error
 
 
 def _lock_super_admin(db: Session, user_id: str) -> User:
@@ -69,9 +91,8 @@ def create_faculty_as_super_admin(
         db.commit()
         db.refresh(faculty)
         return faculty
-    except Exception:
-        db.rollback()
-        raise
+    except Exception as error:
+        _rollback_and_raise(db, error)
 
 
 def update_faculty_as_super_admin(
@@ -88,9 +109,8 @@ def update_faculty_as_super_admin(
         db.commit()
         db.refresh(faculty)
         return faculty
-    except Exception:
-        db.rollback()
-        raise
+    except Exception as error:
+        _rollback_and_raise(db, error)
 
 
 def soft_delete_faculty_as_super_admin(
@@ -104,6 +124,5 @@ def soft_delete_faculty_as_super_admin(
         faculty = _lock_faculty_target(db, repository, faculty_member_id)
         repository.soft_delete_for_scoped_write(faculty)
         db.commit()
-    except Exception:
-        db.rollback()
-        raise
+    except Exception as error:
+        _rollback_and_raise(db, error)

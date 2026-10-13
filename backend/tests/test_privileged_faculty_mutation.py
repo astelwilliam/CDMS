@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -132,6 +133,35 @@ def test_create_service_flushes_and_commits_exactly_once():
     db.commit.assert_called_once_with()
     db.refresh.assert_called_once_with(faculty)
     db.rollback.assert_not_called()
+
+
+@pytest.mark.parametrize("sqlstate", ["55P03", "40P01", "40001"])
+def test_transient_database_failure_rolls_back_and_is_sanitized(sqlstate):
+    from app.services.privileged_faculty_mutation import (
+        FacultyMutationTemporarilyUnavailable,
+        create_faculty_as_super_admin,
+    )
+
+    class PostgreSQLError(Exception):
+        pass
+
+    original = PostgreSQLError("sensitive database detail")
+    original.sqlstate = sqlstate
+    db = MagicMock(spec=Session)
+    db.scalar.side_effect = OperationalError("sensitive statement", {}, original)
+
+    with pytest.raises(FacultyMutationTemporarilyUnavailable) as error:
+        create_faculty_as_super_admin(
+            db,
+            "super-id",
+            "department-id",
+            {"name": "Must Not Exist"},
+        )
+
+    assert str(error.value) == ""
+    db.rollback.assert_called_once_with()
+    db.commit.assert_not_called()
+    db.add.assert_not_called()
 
 
 def test_super_admin_can_create_update_and_soft_delete(faculty_mutation_boundary):
@@ -290,4 +320,62 @@ def test_department_admin_writes_remain_forbidden(
         json=payload,
     )
     assert response.status_code == 403
+
+
+@pytest.mark.parametrize(
+    "method,path,service_name,payload",
+    [
+        (
+            "POST",
+            "/faculty_members/",
+            "create_faculty_as_super_admin",
+            {"name": "Unavailable", "department_id": "department-id"},
+        ),
+        (
+            "PUT",
+            "/faculty_members/faculty-id",
+            "update_faculty_as_super_admin",
+            {"name": "Unavailable"},
+        ),
+        (
+            "DELETE",
+            "/faculty_members/faculty-id",
+            "soft_delete_faculty_as_super_admin",
+            None,
+        ),
+    ],
+)
+def test_transient_faculty_failures_return_generic_503(
+    faculty_mutation_boundary,
+    monkeypatch,
+    method,
+    path,
+    service_name,
+    payload,
+):
+    from app.api.routers import faculty_member as faculty_router
+    from app.services.privileged_faculty_mutation import (
+        FacultyMutationTemporarilyUnavailable,
+    )
+
+    def fail_temporarily(*args, **kwargs):
+        raise FacultyMutationTemporarilyUnavailable from RuntimeError(
+            "sensitive database detail"
+        )
+
+    monkeypatch.setattr(faculty_router, service_name, fail_temporarily)
+    client, _, _, tokens = faculty_mutation_boundary
+    response = client.request(
+        method,
+        path,
+        headers=auth(tokens["super"]),
+        json=payload,
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "Faculty mutation temporarily unavailable"
+    }
+    assert response.headers["retry-after"] == "1"
+    assert "sensitive" not in response.text.lower()
 

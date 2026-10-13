@@ -12,6 +12,7 @@ from app.api.schemas.auth import CurrentUser
 from app.repositories.faculty_member_repository import FacultyMemberRepository
 from app.services.privileged_faculty_mutation import (
     FacultyMutationTargetNotFound,
+    FacultyMutationTemporarilyUnavailable,
     PrivilegedFacultyMutationDenied,
     create_faculty_as_super_admin,
     soft_delete_faculty_as_super_admin,
@@ -19,6 +20,14 @@ from app.services.privileged_faculty_mutation import (
 )
 
 router = APIRouter(prefix="/faculty_members", tags=["Faculty Members"])
+
+
+def _raise_temporary_failure(exc: FacultyMutationTemporarilyUnavailable) -> None:
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Faculty mutation temporarily unavailable",
+        headers={"Retry-After": "1"},
+    ) from exc
 
 
 @router.get("/", response_model=List[FacultyMemberRead])
@@ -71,6 +80,8 @@ def create_faculty_member(
         raise HTTPException(status_code=404, detail="Department not found") from exc
     except PrivilegedFacultyMutationDenied as exc:
         raise HTTPException(status_code=403, detail="Access denied") from exc
+    except FacultyMutationTemporarilyUnavailable as exc:
+        _raise_temporary_failure(exc)
 
 
 @router.put(
@@ -94,6 +105,8 @@ def update_faculty_member(
         raise HTTPException(status_code=404, detail="Faculty member not found") from exc
     except PrivilegedFacultyMutationDenied as exc:
         raise HTTPException(status_code=403, detail="Access denied") from exc
+    except FacultyMutationTemporarilyUnavailable as exc:
+        _raise_temporary_failure(exc)
 
 
 @router.delete(
@@ -111,3 +124,5 @@ def delete_faculty_member(
         raise HTTPException(status_code=404, detail="Faculty member not found") from exc
     except PrivilegedFacultyMutationDenied as exc:
         raise HTTPException(status_code=403, detail="Access denied") from exc
+    except FacultyMutationTemporarilyUnavailable as exc:
+        _raise_temporary_failure(exc)

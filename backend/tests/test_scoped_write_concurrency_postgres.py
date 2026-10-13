@@ -19,6 +19,7 @@ from app.models.faculty_member import FacultyMember
 from app.models.role import Role
 from app.models.user import User
 from app.repositories.faculty_member_repository import FacultyMemberRepository
+from app.repositories.college_repository import CollegeRepository
 from app.repositories.department_administrator_repository import (
     DepartmentAdministratorRepository,
 )
@@ -40,6 +41,7 @@ from app.services.privileged_user_mutation import (
 )
 from app.services.privileged_faculty_mutation import (
     FacultyMutationTargetNotFound,
+    FacultyMutationTemporarilyUnavailable,
     PrivilegedFacultyMutationDenied,
     create_faculty_as_super_admin,
     soft_delete_faculty_as_super_admin,
@@ -581,10 +583,12 @@ def test_production_faculty_lock_timeout_rolls_back(concurrency_data):
             "Must Roll Back After Timeout",
         )
         assert started.wait(WAIT_SECONDS)
-        with pytest.raises(OperationalError) as error:
+        with pytest.raises(FacultyMutationTemporarilyUnavailable) as error:
             future.result(timeout=WAIT_SECONDS)
-        sqlstate = getattr(error.value.orig, "sqlstate", None) or getattr(
-            error.value.orig, "pgcode", None
+        assert isinstance(error.value.__cause__, OperationalError)
+        original = error.value.__cause__.orig
+        sqlstate = getattr(original, "sqlstate", None) or getattr(
+            original, "pgcode", None
         )
         assert sqlstate == "55P03"
         department_db.rollback()
@@ -652,12 +656,15 @@ def test_administrative_deletion_guards_preserve_related_rows(concurrency_data):
     engine, ids = concurrency_data
     with Session(engine) as db:
         with pytest.raises(AdministrativeDeletionDisabled):
+            CollegeRepository(db).delete(ids["college"])
+        with pytest.raises(AdministrativeDeletionDisabled):
             DepartmentRepository(db).delete(ids["department"])
         with pytest.raises(AdministrativeDeletionDisabled):
             DepartmentAdministratorRepository(db).delete(ids["administrator"])
         db.rollback()
 
     with Session(engine) as verification_db:
+        assert verification_db.get(College, ids["college"]) is not None
         assert verification_db.get(Department, ids["department"]) is not None
         assert (
             verification_db.get(

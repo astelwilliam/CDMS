@@ -73,6 +73,7 @@ def deletion_boundary(monkeypatch):
         )
         db.commit()
         ids = {
+            "college": college.id,
             "department": department.id,
             "administrator": administrator.id,
             "faculty": faculty.id,
@@ -100,6 +101,7 @@ def deletion_boundary(monkeypatch):
 @pytest.mark.parametrize(
     "path_key,path_prefix",
     [
+        ("college", "/colleges"),
         ("department", "/departments"),
         ("administrator", "/department_administrators"),
     ],
@@ -108,6 +110,7 @@ def test_super_admin_deletion_is_blocked_without_modifying_records(
     deletion_boundary, path_key, path_prefix
 ):
     from app.models.association_tables import department_administrator_departments
+    from app.models.college import College
     from app.models.department import Department
     from app.models.department_administrator import DepartmentAdministrator
     from app.models.faculty_member import FacultyMember
@@ -122,6 +125,7 @@ def test_super_admin_deletion_is_blocked_without_modifying_records(
     assert response.status_code == 409
     assert response.json() == {"detail": DELETION_DISABLED_DETAIL}
     with Session(engine) as db:
+        assert db.get(College, ids["college"]) is not None
         assert db.get(Department, ids["department"]) is not None
         assert db.get(DepartmentAdministrator, ids["administrator"]) is not None
         assert db.get(FacultyMember, ids["faculty"]) is not None
@@ -136,6 +140,7 @@ def test_super_admin_deletion_is_blocked_without_modifying_records(
 
 
 @pytest.mark.parametrize("path_key,path_prefix", [
+    ("college", "/colleges"),
     ("department", "/departments"),
     ("administrator", "/department_administrators"),
 ])
@@ -159,6 +164,9 @@ def test_non_deletion_reads_remain_available(deletion_boundary):
     department_headers = {"Authorization": f"Bearer {tokens['department']}"}
 
     assert client.get(
+        f"/colleges/{ids['college']}", headers=super_headers
+    ).status_code == 200
+    assert client.get(
         f"/departments/{ids['department']}", headers=super_headers
     ).status_code == 200
     assert client.get(
@@ -176,12 +184,14 @@ def test_repositories_reject_direct_deletion_without_database_work(
     from app.repositories.department_administrator_repository import (
         DepartmentAdministratorRepository,
     )
+    from app.repositories.college_repository import CollegeRepository
     from app.repositories.department_repository import DepartmentRepository
     from app.services.administrative_deletion import AdministrativeDeletionDisabled
 
     _, engine, ids, _ = deletion_boundary
     with Session(engine) as db:
         for repository, record_id in (
+            (CollegeRepository(db), ids["college"]),
             (DepartmentRepository(db), ids["department"]),
             (DepartmentAdministratorRepository(db), ids["administrator"]),
         ):
