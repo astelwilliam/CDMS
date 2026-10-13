@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from datetime import datetime
 
@@ -12,10 +12,14 @@ class FacultyMemberBase(BaseModel):
 
 
 class FacultyMemberCreate(FacultyMemberBase):
+    model_config = ConfigDict(extra="forbid")
+
     department_id: str
 
 
 class FacultyMemberUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: Optional[str] = None
     title: Optional[str] = None
     biography: Optional[str] = None
