@@ -67,7 +67,20 @@ input {
   padding: 0.78rem 0.9rem;
 }
 
-input:focus {
+select,
+textarea {
+  background: #ffffff;
+  border: 1px solid #aebbc9;
+  border-radius: 8px;
+  color: #13233a;
+  font: inherit;
+  padding: 0.78rem 0.9rem;
+  width: 100%;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
   border-color: #275d9b;
   box-shadow: 0 0 0 3px rgba(39, 93, 155, 0.16);
   outline: none;
@@ -109,6 +122,67 @@ button.secondary {
   max-width: 1100px;
 }
 
+.dashboard-nav {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1.5rem 0;
+  overflow-x: auto;
+}
+
+button.nav-button {
+  background: transparent;
+  border: 1px solid #aebbc9;
+  color: #31506f;
+  margin: 0;
+  white-space: nowrap;
+}
+
+button.nav-button.active {
+  background: #174f8c;
+  border-color: #174f8c;
+  color: #ffffff;
+}
+
+.error-panel {
+  align-items: center;
+  background: #fff0f0;
+  border: 1px solid #e2aaaa;
+  border-radius: 10px;
+  color: #8a1d1d;
+  display: flex;
+  justify-content: space-between;
+  padding: 1rem;
+}
+
+.error-panel p {
+  margin: 0;
+}
+
+.loading-state,
+.empty-state {
+  background: #ffffff;
+  border: 1px dashed #aebbc9;
+  border-radius: 10px;
+  color: #637083;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.section-heading {
+  align-items: end;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.section-heading h2 {
+  margin-bottom: 0.25rem;
+}
+
+.section-heading p {
+  margin: 0;
+}
+
 .dashboard-header {
   align-items: center;
   display: flex;
@@ -138,6 +212,70 @@ button.secondary {
   font-size: 2rem;
 }
 
+.record-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.record-card,
+.create-panel {
+  background: #ffffff;
+  border: 1px solid #dbe3ee;
+  border-radius: 12px;
+  padding: 1.25rem;
+}
+
+.record-card p:last-child {
+  margin-bottom: 0;
+}
+
+.record-heading {
+  align-items: start;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.record-heading h3 {
+  margin: 0;
+}
+
+.record-meta {
+  color: #637083;
+  font-size: 0.9rem;
+}
+
+.tag {
+  background: #edf3f9;
+  border-radius: 999px;
+  color: #315f9a;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.25rem 0.55rem;
+}
+
+.create-panel {
+  margin-bottom: 1rem;
+}
+
+.create-panel summary {
+  color: #174f8c;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.create-panel label {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.form-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 @media (max-width: 600px) {
   .login-card {
     padding: 1.5rem;
@@ -146,5 +284,9 @@ button.secondary {
   .dashboard-header {
     align-items: flex-start;
     gap: 1rem;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
   }
 }

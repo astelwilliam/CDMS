@@ -1,49 +1,67 @@
-import { useEffect, useState } from "react";
-import axios from "axios";
+import { useCallback, useEffect, useState } from "react";
+import DepartmentList from "./DepartmentList.jsx";
+import FacultyCreateForm from "./FacultyCreateForm.jsx";
+import FacultyList from "./FacultyList.jsx";
+import { loadAdministrativeData, requestErrorMessage } from "./workflows.js";
+
+const views = [
+  { id: "overview", label: "Overview" },
+  { id: "departments", label: "Departments" },
+  { id: "faculty", label: "Faculty" },
+];
 
 export default function AdminDashboard({ api, user, onLogout }) {
+  const [activeView, setActiveView] = useState("overview");
   const [colleges, setColleges] = useState([]);
   const [departments, setDepartments] = useState([]);
+  const [faculty, setFaculty] = useState([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
+  const loadData = useCallback(async () => {
+    try {
+      const data = await loadAdministrativeData(api, user.role);
+      setDepartments(data.departments);
+      setFaculty(data.faculty);
+      setColleges(data.colleges);
+    } catch (requestError) {
+      setError(requestErrorMessage(requestError));
+    } finally {
+      setLoading(false);
+    }
+  }, [api, user.role]);
+
   useEffect(() => {
     let active = true;
-
-    async function loadDashboard() {
-      try {
-        const departmentRequest = api.get("/departments/");
-        const collegeRequest =
-          user.role === "super_admin" ? api.get("/colleges/") : null;
-        const [departmentResponse, collegeResponse] = await Promise.all([
-          departmentRequest,
-          collegeRequest,
-        ]);
-
+    loadAdministrativeData(api, user.role)
+      .then((data) => {
         if (active) {
-          setDepartments(departmentResponse.data);
-          setColleges(collegeResponse?.data || []);
+          setDepartments(data.departments);
+          setFaculty(data.faculty);
+          setColleges(data.colleges);
         }
-      } catch (requestError) {
-        if (active && axios.isAxiosError(requestError)) {
-          if (requestError.response?.status === 403) {
-            setError("Your account is not authorized to view this resource.");
-          } else if (requestError.response?.status !== 401) {
-            setError("CDMS data could not be loaded.");
-          }
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    }
+      })
+      .catch((requestError) => {
+        if (active) setError(requestErrorMessage(requestError));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
 
-    loadDashboard();
     return () => {
       active = false;
     };
-  }, [api, user]);
+  }, [api, user.role]);
+
+  function handleFacultyCreated(created) {
+    setFaculty((current) => [...current, created]);
+  }
+
+  function handleRetry() {
+    setError("");
+    setLoading(true);
+    loadData();
+  }
 
   return (
     <main className="dashboard">
@@ -60,30 +78,102 @@ export default function AdminDashboard({ api, user, onLogout }) {
         </button>
       </header>
 
+      <nav className="dashboard-nav" aria-label="Administration sections">
+        {views.map((view) => (
+          <button
+            className={activeView === view.id ? "nav-button active" : "nav-button"}
+            type="button"
+            aria-pressed={activeView === view.id}
+            onClick={() => setActiveView(view.id)}
+            key={view.id}
+          >
+            {view.label}
+          </button>
+        ))}
+      </nav>
+
       {error && (
-        <p className="form-error" role="alert">
-          {error}
-        </p>
-      )}
-      {loading ? (
-        <p>Loading…</p>
-      ) : (
-        <div className="summary-grid">
-          {user.role === "super_admin" && (
-            <section className="summary-card">
-              <span>Colleges</span>
-              <strong>{colleges.length}</strong>
-            </section>
+        <div className="error-panel" role="alert">
+          <p>{error}</p>
+          {error && (
+            <button className="secondary" type="button" onClick={handleRetry}>
+              Try again
+            </button>
           )}
-          <section className="summary-card">
-            <span>
-              {user.role === "department_admin"
-                ? "Assigned departments"
-                : "Departments"}
-            </span>
-            <strong>{departments.length}</strong>
-          </section>
         </div>
+      )}
+
+      {loading ? (
+        <p className="loading-state">Loading CDMS data…</p>
+      ) : (
+        !error && (
+          <>
+            {activeView === "overview" && (
+              <section aria-labelledby="overview-heading">
+                <h2 id="overview-heading">Overview</h2>
+                <div className="summary-grid">
+                  {user.role === "super_admin" && (
+                    <article className="summary-card">
+                      <span>Colleges</span>
+                      <strong>{colleges.length}</strong>
+                    </article>
+                  )}
+                  <article className="summary-card">
+                    <span>
+                      {user.role === "department_admin"
+                        ? "Assigned departments"
+                        : "Departments"}
+                    </span>
+                    <strong>{departments.length}</strong>
+                  </article>
+                  <article className="summary-card">
+                    <span>Faculty members</span>
+                    <strong>{faculty.length}</strong>
+                  </article>
+                </div>
+              </section>
+            )}
+
+            {activeView === "departments" && (
+              <section aria-labelledby="departments-heading">
+                <div className="section-heading">
+                  <div>
+                    <h2 id="departments-heading">Departments</h2>
+                    <p className="muted">
+                      {user.role === "department_admin"
+                        ? "Departments currently assigned to your account."
+                        : "All active campus departments."}
+                    </p>
+                  </div>
+                </div>
+                <DepartmentList
+                  departments={departments}
+                  colleges={colleges}
+                  role={user.role}
+                />
+              </section>
+            )}
+
+            {activeView === "faculty" && (
+              <section aria-labelledby="faculty-heading">
+                <div className="section-heading">
+                  <div>
+                    <h2 id="faculty-heading">Faculty</h2>
+                    <p className="muted">
+                      Faculty from departments your account may access.
+                    </p>
+                  </div>
+                </div>
+                <FacultyCreateForm
+                  api={api}
+                  departments={departments}
+                  onCreated={handleFacultyCreated}
+                />
+                <FacultyList faculty={faculty} departments={departments} />
+              </section>
+            )}
+          </>
+        )
       )}
     </main>
   );
