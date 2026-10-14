@@ -25,6 +25,10 @@ from app.repositories.department_administrator_repository import (
 )
 from app.repositories.department_repository import DepartmentRepository
 from app.services.administrative_deletion import AdministrativeDeletionDisabled
+from app.services.administrator_provisioning import (
+    AdministratorAlreadyProvisioned,
+    stage_initial_super_administrator,
+)
 from app.services.scoped_write_authorization import (
     ScopedWriteAccessDenied,
     ScopedWriteResourceNotFound,
@@ -52,6 +56,17 @@ from app.core.config import settings
 
 
 WAIT_SECONDS = 5
+
+
+def assert_isolated_schema(engine, schema_name: str) -> None:
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT current_schema()")) == schema_name
+        assert connection.scalar(
+            text(
+                "SELECT table_schema FROM information_schema.tables "
+                "WHERE table_schema = current_schema() AND table_name = 'users'"
+            )
+        ) == schema_name
 
 
 @pytest.fixture(scope="module")
@@ -84,7 +99,7 @@ def postgres_engine():
     engine = create_engine(
         database_url,
         pool_pre_ping=True,
-        connect_args={"options": f"-csearch_path={schema_name},public"},
+        connect_args={"options": f"-csearch_path={schema_name}"},
     )
 
     import app.models  # noqa: F401 - register complete metadata
@@ -92,6 +107,7 @@ def postgres_engine():
 
     try:
         Base.metadata.create_all(engine)
+        assert_isolated_schema(engine, schema_name)
         yield engine
     finally:
         engine.dispose()
@@ -297,6 +313,106 @@ def create_scoped_faculty_in_new_session(
                 event.remove(
                     connection, "after_cursor_execute", pause_after_assignment_lock
                 )
+
+
+def test_initial_super_admin_provisioning_is_serialized(postgres_engine):
+    schema_name = f"cdms_provisioning_{uuid.uuid4().hex}"
+    administrative_engine = create_engine(postgres_engine.url, pool_pre_ping=True)
+    with administrative_engine.begin() as connection:
+        connection.execute(CreateSchema(schema_name))
+
+    engine = create_engine(
+        postgres_engine.url,
+        pool_pre_ping=True,
+        connect_args={"options": f"-csearch_path={schema_name}"},
+    )
+
+    import app.models  # noqa: F401 - register complete metadata
+    from app.db.session import Base
+
+    start = threading.Barrier(2)
+    first_lock_acquired = threading.Event()
+    release_first_transaction = threading.Event()
+    lock_owner_guard = threading.Lock()
+    first_lock_seen = False
+
+    def provision(email: str) -> str:
+        nonlocal first_lock_seen
+        with Session(engine) as db:
+            set_lock_timeout(db)
+            connection = db.connection()
+
+            def pause_first_lock(
+                conn, cursor, statement, parameters, context, executemany
+            ):
+                nonlocal first_lock_seen
+                normalized = " ".join(statement.lower().split())
+                if normalized != "lock table users in share row exclusive mode":
+                    return
+                with lock_owner_guard:
+                    is_first = not first_lock_seen
+                    if is_first:
+                        first_lock_seen = True
+                if is_first:
+                    first_lock_acquired.set()
+                    assert release_first_transaction.wait(WAIT_SECONDS)
+
+            event.listen(connection, "after_cursor_execute", pause_first_lock)
+            try:
+                start.wait(WAIT_SECONDS)
+                try:
+                    stage_initial_super_administrator(
+                        db,
+                        email,
+                        "provisioning-race-password",
+                    )
+                    db.commit()
+                    return "created"
+                except AdministratorAlreadyProvisioned:
+                    db.rollback()
+                    return "rejected"
+            finally:
+                event.remove(connection, "after_cursor_execute", pause_first_lock)
+
+    try:
+        Base.metadata.create_all(engine)
+        assert_isolated_schema(engine, schema_name)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            attempts = [
+                executor.submit(provision, "first-race@example.com"),
+                executor.submit(provision, "second-race@example.com"),
+            ]
+            assert first_lock_acquired.wait(WAIT_SECONDS)
+            assert all(not attempt.done() for attempt in attempts)
+
+            release_first_transaction.set()
+            outcomes = [attempt.result(timeout=WAIT_SECONDS) for attempt in attempts]
+
+        assert sorted(outcomes) == ["created", "rejected"]
+        with Session(engine) as verification_db:
+            administrators = list(
+                verification_db.scalars(
+                    select(User).where(User.role == "super_admin")
+                )
+            )
+            assert len(administrators) == 1
+            assert administrators[0].email in {
+                "first-race@example.com",
+                "second-race@example.com",
+            }
+            losing_email = (
+                {"first-race@example.com", "second-race@example.com"}
+                - {administrators[0].email}
+            ).pop()
+            assert verification_db.scalar(
+                select(User.id).where(User.email == losing_email)
+            ) is None
+    finally:
+        release_first_transaction.set()
+        engine.dispose()
+        with administrative_engine.begin() as connection:
+            connection.execute(DropSchema(schema_name, cascade=True))
+        administrative_engine.dispose()
 
 
 def test_revocation_first_denies_scoped_mutation(concurrency_data):
