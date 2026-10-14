@@ -1,71 +1,31 @@
 import { useEffect, useState } from "react";
-import api from "./api";
+import api from "./api.js";
+import { authService } from "./auth.js";
+import AdminDashboard from "./AdminDashboard.jsx";
+import LoginForm from "./LoginForm.jsx";
+import "./App.css";
 
-function App() {
-  const [colleges, setColleges] = useState([]);
-  const [departments, setDepartments] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+export default function App() {
+  const [user, setUser] = useState(null);
 
   useEffect(() => {
-    Promise.all([api.get("/colleges/"), api.get("/departments/")])
-      .then(([collegesRes, departmentsRes]) => {
-        setColleges(collegesRes.data);
-        setDepartments(departmentsRes.data);
-      })
-      .catch((err) => {
-        console.log("ERROR:", err);
-        console.log("RESPONSE:", err.response);
-        console.log("DATA:", err.response?.data);
-        setError(err.message);
-      })
-      .finally(() => setLoading(false));
+    authService.onUnauthorized(() => setUser(null));
+    return () => authService.onUnauthorized(null);
   }, []);
 
-  // Group departments by their college_id
-  const departmentsByCollege = departments.reduce((acc, dept) => {
-    (acc[dept.college_id] ||= []).push(dept);
-    return acc;
-  }, {});
+  async function handleLogin(email, password) {
+    const authenticatedUser = await authService.login(email, password);
+    setUser(authenticatedUser);
+  }
 
-  return (
-    <div style={{ padding: "20px", fontFamily: "Arial" }}>
-      <h1>College Department Management System</h1>
+  function handleLogout() {
+    authService.logout();
+    setUser(null);
+  }
 
-      {error && <p style={{ color: "red" }}>{error}</p>}
-      {loading && <p>Loading...</p>}
-
-      <h2>Colleges</h2>
-
-      {!loading && colleges.length === 0 ? (
-        <p>No colleges found.</p>
-      ) : (
-        <ul>
-          {colleges
-            .filter((college) => college.name && college.name.trim() !== "")
-            .map((college) => {
-              const collegeDepts = departmentsByCollege[college.id] || [];
-              return (
-                <li key={college.id} style={{ marginBottom: "12px" }}>
-                  <strong>{college.name}</strong>
-                  {collegeDepts.length === 0 ? (
-                    <p style={{ margin: "4px 0 0 0", color: "#888", fontSize: "14px" }}>
-                      No departments yet.
-                    </p>
-                  ) : (
-                    <ul>
-                      {collegeDepts.map((dept) => (
-                        <li key={dept.id}>{dept.name}</li>
-                      ))}
-                    </ul>
-                  )}
-                </li>
-              );
-            })}
-        </ul>
-      )}
-    </div>
+  return user ? (
+    <AdminDashboard api={api} user={user} onLogout={handleLogout} />
+  ) : (
+    <LoginForm onLogin={handleLogin} />
   );
 }
-
-export default App;
