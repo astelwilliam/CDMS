@@ -53,7 +53,7 @@ From the `backend/` directory:
 alembic upgrade head
 ```
 
-### 5. (Optional) Create a development administrator
+### 5. Provision the first administrator
 
 From the `backend/` directory:
 
@@ -61,7 +61,9 @@ From the `backend/` directory:
 python seed_admin.py
 ```
 
-> **Development only:** The seed script contains hard-coded credentials. Don't use it in shared or production environments.
+The command prompts for an email and hidden password confirmation. It creates no
+default credentials and exits without changes when a super administrator already
+exists.
 
 ### 6. Install frontend dependencies
 
@@ -111,7 +113,6 @@ npm run dev
 * **Password change:** An earlier issue involved an undefined `login_data` reference and logging of sensitive data. Check the current code and add regression tests.
 * **Model ID defaults:** Check that creating records works for models that don't have ID defaults set.
 * **Automated tests:** Add real tests for authentication, authorization, CRUD operations and error handling.
-* **Admin provisioning:** Replace the hard-coded development credentials with a secure way to create administrators.
 * **Deployment security:** Before deploying, review secret management, CORS, debug settings, authorization and database permissions.
 
 > These items still need to be checked against the current code. Being listed here doesn't mean they've been fixed.
