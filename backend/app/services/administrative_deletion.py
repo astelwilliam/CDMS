@@ -5,4 +5,3 @@ DELETION_DISABLED_DETAIL = (
 
 class AdministrativeDeletionDisabled(RuntimeError):
     """Raised when an unresolved destructive operation is attempted."""
-

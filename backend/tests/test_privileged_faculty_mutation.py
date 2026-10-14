@@ -377,4 +377,3 @@ def test_transient_faculty_failures_return_generic_503(
     }
     assert response.headers["retry-after"] == "1"
     assert "sensitive" not in response.text.lower()
-

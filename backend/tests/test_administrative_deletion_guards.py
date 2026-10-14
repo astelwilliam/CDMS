@@ -199,4 +199,3 @@ def test_repositories_reject_direct_deletion_without_database_work(
                 repository.delete(record_id)
         assert not db.dirty
         assert not db.deleted
-
