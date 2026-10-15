@@ -26,6 +26,11 @@ class CurrentUser(BaseModel):
     is_active: bool
 
 
+class PersistentSession(BaseModel):
+    user: CurrentUser
+    csrf_token: str
+
+
 class PasswordChangeRequest(BaseModel):
     """Schema for password change request."""
 

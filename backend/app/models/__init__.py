@@ -1,4 +1,5 @@
 from app.models.user import User
+from app.models.auth_session import AuthSession
 from app.models.college import College
 from app.models.department import Department
 from app.models.faculty_member import FacultyMember

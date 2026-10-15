@@ -1,33 +1,67 @@
 from dataclasses import dataclass
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from typing import Optional
 
 from app.api.deps.database import get_db
+from app.core.config import settings
 from app.core.security import decode_access_token
 from app.models.association_tables import department_administrator_departments
 from app.models.department import Department
 from app.models.department_administrator import DepartmentAdministrator
 from app.services.auth_service import AuthService
+from app.services.session_service import ResolvedSession, resolve_session
 from app.api.schemas.auth import CurrentUser
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
+
+
+def _credentials_exception() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def get_current_auth_session(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> ResolvedSession:
+    resolved = resolve_session(
+        db,
+        request.cookies.get(settings.SESSION_COOKIE_NAME, ""),
+    )
+    if resolved is None:
+        raise _credentials_exception()
+    return resolved
 
 
 def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    request: Request,
+    token: Optional[str] = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
 ) -> CurrentUser:
     """
     Dependency to get the current authenticated user from the JWT token.
     """
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    credentials_exception = _credentials_exception()
+
+    if "authorization" not in request.headers:
+        resolved = resolve_session(
+            db,
+            request.cookies.get(settings.SESSION_COOKIE_NAME, ""),
+        )
+        if resolved is None:
+            raise credentials_exception
+        request.state.auth_method = "cookie"
+        request.state.auth_session_id = resolved.session.id
+        return CurrentUser.model_validate(resolved.user)
+
+    if token is None:
+        raise credentials_exception
 
     payload = decode_access_token(token)
     if payload is None:
@@ -39,7 +73,7 @@ def get_current_user(
 
     auth_service = AuthService(db)
     user = auth_service.get_current_user(user_id)
-    
+    request.state.auth_method = "bearer"
     return user
 
 

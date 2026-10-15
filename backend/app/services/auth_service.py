@@ -17,10 +17,7 @@ class AuthService:
         self.db = db
         self.user_repo = UserRepository(db)
 
-    def authenticate_user(self, login_data: LoginRequest) -> Token:
-        """
-        Authenticate user credentials and return access token.
-        """
+    def authenticate_credentials(self, login_data: LoginRequest) -> User:
         user = self.user_repo.get_by_email(login_data.email)
         
         if (
@@ -33,7 +30,12 @@ class AuthService:
                 detail="Incorrect email or password",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        
+
+        return user
+
+    def authenticate_user(self, login_data: LoginRequest) -> Token:
+        """Authenticate user credentials and return a bearer access token."""
+        user = self.authenticate_credentials(login_data)
         access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = create_access_token(
             data={"sub": user.id, "email": user.email, "role": user.role},

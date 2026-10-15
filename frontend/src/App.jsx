@@ -6,11 +6,22 @@ import LoginForm from "./LoginForm.jsx";
 import "./App.css";
 
 export default function App() {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(undefined);
 
   useEffect(() => {
     authService.onUnauthorized(() => setUser(null));
-    return () => authService.onUnauthorized(null);
+    let active = true;
+    authService.restore()
+      .then((restoredUser) => {
+        if (active) setUser(restoredUser);
+      })
+      .catch(() => {
+        if (active) setUser(null);
+      });
+    return () => {
+      active = false;
+      authService.onUnauthorized(null);
+    };
   }, []);
 
   async function handleLogin(email, password) {
@@ -18,9 +29,16 @@ export default function App() {
     setUser(authenticatedUser);
   }
 
-  function handleLogout() {
-    authService.logout();
-    setUser(null);
+  async function handleLogout() {
+    try {
+      await authService.logout();
+    } finally {
+      setUser(null);
+    }
+  }
+
+  if (user === undefined) {
+    return <main className="login-page"><p>Restoring session…</p></main>;
   }
 
   return user ? (

@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Literal
 import json
 
 
@@ -9,6 +9,11 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    SESSION_EXPIRE_MINUTES: int = 60
+    SESSION_COOKIE_NAME: str = "cdms_session"
+    SESSION_COOKIE_SECURE: bool = True
+    SESSION_COOKIE_SAMESITE: Literal["lax", "strict"] = "lax"
+    CSRF_HEADER_NAME: str = "X-CSRF-Token"
     DATABASE_URL: str
     LOG_LEVEL: str = "INFO"
     BACKEND_CORS_ORIGINS: List[str] = []

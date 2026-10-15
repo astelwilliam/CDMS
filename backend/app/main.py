@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.logging import setup_logging
+from app.middleware.csrf import CSRFMiddleware
 from app.api.deps.auth import get_current_super_admin
 
 from app.api.routers import (
@@ -31,13 +32,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(CSRFMiddleware)
+
 if settings.cors_origins:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
     )
 
 # Register all routers

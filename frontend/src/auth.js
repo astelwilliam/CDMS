@@ -10,13 +10,22 @@ export class AuthorizationError extends Error {
 }
 
 export function createAuthService(session = apiSession) {
+  function acceptSession(data) {
+    const { user, csrf_token: csrfToken } = data || {};
+    if (!csrfToken || !user?.is_active || !administratorRoles.has(user.role)) {
+      throw new AuthorizationError();
+    }
+    session.setCsrfToken(csrfToken);
+    return user;
+  }
+
   return {
     async login(email, password) {
       const credentials = new URLSearchParams({ username: email, password });
 
       try {
         const loginResponse = await session.client.post(
-          "/auth/login",
+          "/auth/session/login",
           credentials,
           {
             headers: {
@@ -24,29 +33,29 @@ export function createAuthService(session = apiSession) {
             },
           },
         );
-        const { access_token: accessToken, token_type: tokenType } =
-          loginResponse.data;
-
-        if (!accessToken || tokenType?.toLowerCase() !== "bearer") {
-          throw new Error("The authentication response was invalid.");
-        }
-
-        session.setAccessToken(accessToken);
-        const profileResponse = await session.client.get("/auth/me");
-        const user = profileResponse.data;
-
-        if (!user?.is_active || !administratorRoles.has(user.role)) {
-          throw new AuthorizationError();
-        }
-
-        return user;
+        return acceptSession(loginResponse.data);
       } catch (error) {
-        session.clearAccessToken();
+        session.clearAuthentication();
         throw error;
       }
     },
-    logout() {
-      session.clearAccessToken();
+    async restore() {
+      try {
+        const response = await session.client.get("/auth/session");
+        return acceptSession(response.data);
+      } catch (error) {
+        session.clearAuthentication();
+        throw error;
+      }
+    },
+    async logout() {
+      try {
+        if (session.hasSession()) {
+          await session.client.post("/auth/session/logout");
+        }
+      } finally {
+        session.clearAuthentication();
+      }
     },
     onUnauthorized(handler) {
       session.setUnauthorizedHandler(handler);
