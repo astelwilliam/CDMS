@@ -3,6 +3,7 @@ import DepartmentList from "./DepartmentList.jsx";
 import FacultyCreateForm from "./FacultyCreateForm.jsx";
 import FacultyEditForm from "./FacultyEditForm.jsx";
 import FacultyList from "./FacultyList.jsx";
+import { dashboardHashForView, dashboardViewFromHash } from "./dashboardNavigation.js";
 import { refreshEditingFaculty, replaceFacultyMember } from "./facultyEditing.js";
 import { loadAdministrativeData, requestErrorMessage } from "./workflows.js";
 
@@ -13,7 +14,9 @@ const views = [
 ];
 
 export default function AdminDashboard({ api, user, onLogout }) {
-  const [activeView, setActiveView] = useState("overview");
+  const [activeView, setActiveView] = useState(() =>
+    dashboardViewFromHash(window.location.hash),
+  );
   const [colleges, setColleges] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [faculty, setFaculty] = useState([]);
@@ -33,6 +36,16 @@ export default function AdminDashboard({ api, user, onLogout }) {
       setLoading(false);
     }
   }, [api, user.role]);
+
+  useEffect(() => {
+    const syncView = () => setActiveView(dashboardViewFromHash(window.location.hash));
+    window.addEventListener("hashchange", syncView);
+    window.addEventListener("popstate", syncView);
+    return () => {
+      window.removeEventListener("hashchange", syncView);
+      window.removeEventListener("popstate", syncView);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -71,6 +84,11 @@ export default function AdminDashboard({ api, user, onLogout }) {
     loadData();
   }
 
+  function handleViewChange(view) {
+    window.history.pushState(null, "", dashboardHashForView(view));
+    setActiveView(view);
+  }
+
   return (
     <main className="dashboard">
       <header className="dashboard-header">
@@ -92,7 +110,7 @@ export default function AdminDashboard({ api, user, onLogout }) {
             className={activeView === view.id ? "nav-button active" : "nav-button"}
             type="button"
             aria-pressed={activeView === view.id}
-            onClick={() => setActiveView(view.id)}
+            onClick={() => handleViewChange(view.id)}
             key={view.id}
           >
             {view.label}
