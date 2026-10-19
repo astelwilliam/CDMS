@@ -117,6 +117,14 @@ button.secondary {
   padding: 0.75rem;
 }
 
+.form-success {
+  background: #eef9f1;
+  border: 1px solid #9bc9a8;
+  border-radius: 8px;
+  color: #1d6635;
+  padding: 0.75rem;
+}
+
 .dashboard {
   margin: 0 auto;
   max-width: 1100px;
@@ -244,6 +252,21 @@ button.nav-button.active {
 .record-meta {
   color: #637083;
   font-size: 0.9rem;
+}
+
+.record-actions,
+.form-actions {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+}
+
+.record-actions {
+  justify-content: flex-end;
+}
+
+.form-actions button {
+  margin-top: 0.5rem;
 }
 
 .tag {

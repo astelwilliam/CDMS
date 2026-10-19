@@ -1,4 +1,6 @@
-export default function FacultyList({ faculty, departments }) {
+import { canEditFaculty } from "./facultyEditing.js";
+
+export default function FacultyList({ faculty, departments, role, onEdit }) {
   const departmentNames = new Map(
     departments.map((department) => [department.id, department.name]),
   );
@@ -21,6 +23,17 @@ export default function FacultyList({ faculty, departments }) {
           <p>{member.biography || "No biography provided."}</p>
           {member.contact_information && (
             <p className="record-meta">{member.contact_information}</p>
+          )}
+          {canEditFaculty(role) && (
+            <div className="record-actions">
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => onEdit(member)}
+              >
+                Edit
+              </button>
+            </div>
           )}
         </article>
       ))}

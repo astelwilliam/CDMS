@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import DepartmentList from "./DepartmentList.jsx";
 import FacultyCreateForm from "./FacultyCreateForm.jsx";
+import FacultyEditForm from "./FacultyEditForm.jsx";
 import FacultyList from "./FacultyList.jsx";
+import { refreshEditingFaculty, replaceFacultyMember } from "./facultyEditing.js";
 import { loadAdministrativeData, requestErrorMessage } from "./workflows.js";
 
 const views = [
@@ -15,6 +17,7 @@ export default function AdminDashboard({ api, user, onLogout }) {
   const [colleges, setColleges] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [faculty, setFaculty] = useState([]);
+  const [editingFaculty, setEditingFaculty] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -55,6 +58,11 @@ export default function AdminDashboard({ api, user, onLogout }) {
 
   function handleFacultyCreated(created) {
     setFaculty((current) => [...current, created]);
+  }
+
+  function handleFacultyUpdated(updated) {
+    setFaculty((current) => replaceFacultyMember(current, updated));
+    setEditingFaculty((current) => refreshEditingFaculty(current, updated));
   }
 
   function handleRetry() {
@@ -169,7 +177,21 @@ export default function AdminDashboard({ api, user, onLogout }) {
                   departments={departments}
                   onCreated={handleFacultyCreated}
                 />
-                <FacultyList faculty={faculty} departments={departments} />
+                {user.role === "super_admin" && editingFaculty && (
+                  <FacultyEditForm
+                    api={api}
+                    facultyMember={editingFaculty}
+                    key={editingFaculty.id}
+                    onCancel={() => setEditingFaculty(null)}
+                    onUpdated={handleFacultyUpdated}
+                  />
+                )}
+                <FacultyList
+                  faculty={faculty}
+                  departments={departments}
+                  role={user.role}
+                  onEdit={setEditingFaculty}
+                />
               </section>
             )}
           </>
