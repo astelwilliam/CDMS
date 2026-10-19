@@ -1,10 +1,12 @@
+import { departmentEmptyMessage } from "./departmentList.js";
+
 export default function DepartmentList({ departments, colleges, role }) {
   const collegeNames = new Map(
     colleges.map((college) => [college.id, college.name]),
   );
 
   if (departments.length === 0) {
-    return <p className="empty-state">No authorized departments found.</p>;
+    return <p className="empty-state">{departmentEmptyMessage(role)}</p>;
   }
 
   return (

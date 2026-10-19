@@ -167,8 +167,8 @@ export default function AdminDashboard({ api, user, onLogout }) {
                     <h2 id="departments-heading">Departments</h2>
                     <p className="muted">
                       {user.role === "department_admin"
-                        ? "Departments currently assigned to your account."
-                        : "All active campus departments."}
+                        ? "Loaded departments assigned to your account."
+                        : "Loaded campus departments."}
                     </p>
                   </div>
                 </div>
