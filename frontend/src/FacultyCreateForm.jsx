@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { runFacultyCreationOnce } from "./facultyCreation.js";
 import { createFacultyMember, requestErrorMessage } from "./workflows.js";
 
 const initialValues = {
@@ -14,8 +15,12 @@ export default function FacultyCreateForm({ api, departments, onCreated }) {
   const [values, setValues] = useState(initialValues);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const submitInProgress = useRef(false);
 
   function updateValue(event) {
+    setError("");
+    setSuccess("");
     setValues((current) => ({
       ...current,
       [event.target.name]: event.target.value,
@@ -24,22 +29,26 @@ export default function FacultyCreateForm({ api, departments, onCreated }) {
 
   async function handleSubmit(event) {
     event.preventDefault();
-    setError("");
-    setSubmitting(true);
+    await runFacultyCreationOnce(submitInProgress, async () => {
+      setError("");
+      setSuccess("");
+      setSubmitting(true);
 
-    const payload = Object.fromEntries(
-      Object.entries(values).map(([key, value]) => [key, value.trim()]),
-    );
+      const payload = Object.fromEntries(
+        Object.entries(values).map(([key, value]) => [key, value.trim()]),
+      );
 
-    try {
-      const created = await createFacultyMember(api, payload);
-      onCreated(created);
-      setValues(initialValues);
-    } catch (requestError) {
-      setError(requestErrorMessage(requestError));
-    } finally {
-      setSubmitting(false);
-    }
+      try {
+        const created = await createFacultyMember(api, payload);
+        onCreated(created);
+        setValues(initialValues);
+        setSuccess("Faculty member created.");
+      } catch (requestError) {
+        setError(requestErrorMessage(requestError));
+      } finally {
+        setSubmitting(false);
+      }
+    });
   }
 
   if (departments.length === 0) return null;
@@ -99,6 +108,11 @@ export default function FacultyCreateForm({ api, departments, onCreated }) {
         {error && (
           <p className="form-error" role="alert">
             {error}
+          </p>
+        )}
+        {success && (
+          <p className="form-success" role="status">
+            {success}
           </p>
         )}
         <button type="submit" disabled={submitting}>
