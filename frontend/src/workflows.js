@@ -29,3 +29,28 @@ export function requestErrorMessage(error) {
   if (status === 503) return "The service is temporarily unavailable. Try again.";
   return "CDMS data could not be loaded.";
 }
+
+const FACULTY_UPDATE_FIELDS = [
+  "name",
+  "title",
+  "biography",
+  "contact_information",
+  "profile_image_reference",
+];
+
+export async function updateFacultyMember(api, facultyId, values) {
+  const payload = {};
+
+  for (const field of FACULTY_UPDATE_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(values, field)) {
+      payload[field] = values[field];
+    }
+  }
+
+  const response = await api.put(
+    `/faculty_members/${encodeURIComponent(facultyId)}`,
+    payload,
+  );
+
+  return response.data;
+}
