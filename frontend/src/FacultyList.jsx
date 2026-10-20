@@ -1,4 +1,4 @@
-import { canEditFaculty } from "./facultyEditing.js";
+import { canEditFaculty, facultyRecordStatuses } from "./facultyEditing.js";
 
 export default function FacultyList({ faculty, departments, role, onEdit }) {
   const departmentNames = new Map(
@@ -20,11 +20,16 @@ export default function FacultyList({ faculty, departments, role, onEdit }) {
           <p className="record-meta">
             {departmentNames.get(member.department_id) || "Authorized department"}
           </p>
+          {facultyRecordStatuses(member, departments).map((status) => (
+            <p className="record-meta" key={status}>
+              {status}
+            </p>
+          ))}
           <p>{member.biography || "No biography provided."}</p>
           {member.contact_information && (
             <p className="record-meta">{member.contact_information}</p>
           )}
-          {canEditFaculty(role) && (
+          {canEditFaculty(role, member, departments) && (
             <div className="record-actions">
               <button
                 className="secondary"

@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   canEditFaculty,
+  editableFacultySelection,
   facultyEditValues,
+  facultyRecordStatuses,
   facultyUpdateErrorMessage,
   refreshEditingFaculty,
   replaceFacultyMember,
@@ -66,10 +68,49 @@ test("a pending save leaves a newer editor selection untouched", async () => {
   assert.equal(refreshEditingFaculty(original, updated), updated);
 });
 
-test("only super administrators can edit faculty", () => {
-  assert.equal(canEditFaculty("super_admin"), true);
-  assert.equal(canEditFaculty("department_admin"), false);
-  assert.equal(canEditFaculty("unknown"), false);
+test("only active faculty in confirmed active departments are editable by super administrators", () => {
+  const active = { id: "faculty-1", department_id: "department-1", deleted_at: null };
+  const departments = [
+    { id: "department-1", deleted_at: null },
+    { id: "department-2", deleted_at: "2026-10-20T12:00:00Z" },
+  ];
+
+  assert.equal(canEditFaculty("super_admin", active, departments), true);
+  assert.equal(canEditFaculty("department_admin", active, departments), false);
+  assert.equal(canEditFaculty("unknown", active, departments), false);
+  assert.equal(canEditFaculty("super_admin", { ...active, deleted_at: "2026-10-20T12:00:00Z" }, departments), false);
+  assert.equal(canEditFaculty("super_admin", { ...active, department_id: "department-2" }, departments), false);
+  assert.equal(canEditFaculty("super_admin", { ...active, department_id: "missing" }, departments), false);
+  assert.equal(canEditFaculty("super_admin", { id: "faculty-1", department_id: "department-1" }, departments), false);
+  assert.equal(canEditFaculty("super_admin", active, [{ id: "department-1" }]), false);
+});
+
+test("historical faculty status distinguishes deletion and unavailable departments", () => {
+  const active = { id: "faculty-1", department_id: "department-1", deleted_at: null };
+  const departments = [
+    { id: "department-1", deleted_at: null },
+    { id: "department-2", deleted_at: "2026-10-20T12:00:00Z" },
+  ];
+
+  assert.deepEqual(facultyRecordStatuses(active, departments), []);
+  assert.deepEqual(facultyRecordStatuses({ ...active, deleted_at: "2026-10-20T12:00:00Z" }, departments), ["Deleted"]);
+  assert.deepEqual(facultyRecordStatuses({ ...active, department_id: "department-2" }, departments), ["Read-only — Department deleted"]);
+  assert.deepEqual(facultyRecordStatuses({ ...active, department_id: "missing" }, departments), ["Read-only — Department unavailable"]);
+  assert.deepEqual(facultyRecordStatuses({ id: "faculty-1", department_id: "department-1" }, departments), ["Read-only — Faculty status unavailable"]);
+});
+
+test("a refreshed faculty record closes an editor when editing is no longer allowed", () => {
+  const selected = { id: "faculty-1", department_id: "department-1", deleted_at: null };
+  const other = { id: "faculty-2", department_id: "department-1", deleted_at: null };
+  const activeDepartments = [{ id: "department-1", deleted_at: null }];
+
+  assert.equal(editableFacultySelection(selected, [selected, other], activeDepartments, "super_admin"), selected);
+  assert.equal(editableFacultySelection(selected, [other], activeDepartments, "super_admin"), null);
+  assert.equal(editableFacultySelection(selected, [{ ...selected, deleted_at: "2026-10-20T12:00:00Z" }], activeDepartments, "super_admin"), null);
+  assert.equal(editableFacultySelection(selected, [selected], [{ id: "department-1", deleted_at: "2026-10-20T12:00:00Z" }], "super_admin"), null);
+  assert.equal(editableFacultySelection(selected, [selected], [], "super_admin"), null);
+  assert.equal(editableFacultySelection(selected, [selected], activeDepartments, "department_admin"), null);
+  assert.equal(editableFacultySelection(selected, [other, { ...selected, name: "Refreshed" }], activeDepartments, "super_admin")?.name, "Refreshed");
 });
 
 test("faculty update errors distinguish unavailable records and permissions", () => {

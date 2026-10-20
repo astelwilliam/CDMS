@@ -28,8 +28,37 @@ export function refreshEditingFaculty(selection, updatedFacultyMember) {
     : selection;
 }
 
-export function canEditFaculty(role) {
-  return role === "super_admin";
+export function facultyRecordStatuses(facultyMember, departments) {
+  const statuses = [];
+  if (facultyMember?.deleted_at === undefined) {
+    statuses.push("Read-only — Faculty status unavailable");
+  } else if (facultyMember.deleted_at !== null) {
+    statuses.push("Deleted");
+  }
+
+  const department = departments.find(
+    (item) => item.id === facultyMember?.department_id,
+  );
+  if (!department || department.deleted_at === undefined) {
+    statuses.push("Read-only — Department unavailable");
+  } else if (department.deleted_at !== null) {
+    statuses.push("Read-only — Department deleted");
+  }
+
+  return statuses;
+}
+
+export function canEditFaculty(role, facultyMember, departments) {
+  return (
+    role === "super_admin" &&
+    facultyRecordStatuses(facultyMember, departments).length === 0
+  );
+}
+
+export function editableFacultySelection(selection, faculty, departments, role) {
+  if (!selection) return null;
+  const current = faculty.find((member) => member.id === selection.id);
+  return canEditFaculty(role, current, departments) ? current : null;
 }
 
 export function facultyUpdateErrorMessage(error) {

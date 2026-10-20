@@ -9,7 +9,11 @@ import {
   dashboardViewFromHash,
   dashboardViewsForRole,
 } from "./dashboardNavigation.js";
-import { refreshEditingFaculty, replaceFacultyMember } from "./facultyEditing.js";
+import {
+  editableFacultySelection,
+  refreshEditingFaculty,
+  replaceFacultyMember,
+} from "./facultyEditing.js";
 import { loadAdministrativeData, requestErrorMessage } from "./workflows.js";
 
 export default function AdminDashboard({ api, user, onLogout }) {
@@ -26,6 +30,12 @@ export default function AdminDashboard({ api, user, onLogout }) {
   const visibleView = availableViews.some((view) => view.id === activeView)
     ? activeView
     : "overview";
+  const visibleEditingFaculty = editableFacultySelection(
+    editingFaculty,
+    faculty,
+    departments,
+    user.role,
+  );
 
   const loadData = useCallback(async () => {
     try {
@@ -33,6 +43,9 @@ export default function AdminDashboard({ api, user, onLogout }) {
       setDepartments(data.departments);
       setFaculty(data.faculty);
       setColleges(data.colleges);
+      setEditingFaculty((current) =>
+        editableFacultySelection(current, data.faculty, data.departments, user.role),
+      );
     } catch (requestError) {
       setError(requestErrorMessage(requestError));
     } finally {
@@ -60,6 +73,9 @@ export default function AdminDashboard({ api, user, onLogout }) {
           setDepartments(data.departments);
           setFaculty(data.faculty);
           setColleges(data.colleges);
+          setEditingFaculty((current) =>
+            editableFacultySelection(current, data.faculty, data.departments, user.role),
+          );
         }
       })
       .catch((requestError) => {
@@ -160,6 +176,9 @@ export default function AdminDashboard({ api, user, onLogout }) {
                   <article className="summary-card">
                     <span>Faculty members</span>
                     <strong>{faculty.length}</strong>
+                    {user.role === "super_admin" && (
+                      <span>Includes historical records.</span>
+                    )}
                   </article>
                 </div>
               </section>
@@ -212,11 +231,11 @@ export default function AdminDashboard({ api, user, onLogout }) {
                   departments={departments}
                   onCreated={handleFacultyCreated}
                 />
-                {user.role === "super_admin" && editingFaculty && (
+                {visibleEditingFaculty && (
                   <FacultyEditForm
                     api={api}
-                    facultyMember={editingFaculty}
-                    key={editingFaculty.id}
+                    facultyMember={visibleEditingFaculty}
+                    key={visibleEditingFaculty.id}
                     onCancel={() => setEditingFaculty(null)}
                     onUpdated={handleFacultyUpdated}
                   />
