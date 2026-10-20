@@ -12,6 +12,10 @@ class DepartmentRepository(BaseRepository[Department]):
     def __init__(self, db: Session):
         super().__init__(Department, db)
 
+    def get_all(self, skip: int = 0, limit: int = 100) -> list[Department]:
+        stmt = select(Department).order_by(Department.id).offset(skip).limit(limit)
+        return list(self.db.scalars(stmt).all())
+
     def delete(self, id: str) -> bool:
         raise AdministrativeDeletionDisabled
 

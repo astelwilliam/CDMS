@@ -24,6 +24,10 @@ class FacultyMemberRepository(BaseRepository[FacultyMember]):
     def __init__(self, db: Session):
         super().__init__(FacultyMember, db)
 
+    def get_all(self, skip: int = 0, limit: int = 100) -> list[FacultyMember]:
+        stmt = select(FacultyMember).order_by(FacultyMember.id).offset(skip).limit(limit)
+        return list(self.db.scalars(stmt).all())
+
     def get_by_department(self, department_id: str, skip: int = 0, limit: int = 100) -> List[FacultyMember]:
         """Get all active faculty members in a department."""
         stmt = (
