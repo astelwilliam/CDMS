@@ -1,21 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
+import CollegeList from "./CollegeList.jsx";
 import DepartmentList from "./DepartmentList.jsx";
 import FacultyCreateForm from "./FacultyCreateForm.jsx";
 import FacultyEditForm from "./FacultyEditForm.jsx";
 import FacultyList from "./FacultyList.jsx";
-import { dashboardHashForView, dashboardViewFromHash } from "./dashboardNavigation.js";
+import {
+  dashboardHashForView,
+  dashboardViewFromHash,
+  dashboardViewsForRole,
+} from "./dashboardNavigation.js";
 import { refreshEditingFaculty, replaceFacultyMember } from "./facultyEditing.js";
 import { loadAdministrativeData, requestErrorMessage } from "./workflows.js";
 
-const views = [
-  { id: "overview", label: "Overview" },
-  { id: "departments", label: "Departments" },
-  { id: "faculty", label: "Faculty" },
-];
-
 export default function AdminDashboard({ api, user, onLogout }) {
   const [activeView, setActiveView] = useState(() =>
-    dashboardViewFromHash(window.location.hash),
+    dashboardViewFromHash(window.location.hash, user.role),
   );
   const [colleges, setColleges] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -23,6 +22,10 @@ export default function AdminDashboard({ api, user, onLogout }) {
   const [editingFaculty, setEditingFaculty] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const availableViews = dashboardViewsForRole(user.role);
+  const visibleView = availableViews.some((view) => view.id === activeView)
+    ? activeView
+    : "overview";
 
   const loadData = useCallback(async () => {
     try {
@@ -38,14 +41,16 @@ export default function AdminDashboard({ api, user, onLogout }) {
   }, [api, user.role]);
 
   useEffect(() => {
-    const syncView = () => setActiveView(dashboardViewFromHash(window.location.hash));
+    const syncView = () =>
+      setActiveView(dashboardViewFromHash(window.location.hash, user.role));
+    syncView();
     window.addEventListener("hashchange", syncView);
     window.addEventListener("popstate", syncView);
     return () => {
       window.removeEventListener("hashchange", syncView);
       window.removeEventListener("popstate", syncView);
     };
-  }, []);
+  }, [user.role]);
 
   useEffect(() => {
     let active = true;
@@ -85,7 +90,7 @@ export default function AdminDashboard({ api, user, onLogout }) {
   }
 
   function handleViewChange(view) {
-    window.history.pushState(null, "", dashboardHashForView(view));
+    window.history.pushState(null, "", dashboardHashForView(view, user.role));
     setActiveView(view);
   }
 
@@ -105,11 +110,11 @@ export default function AdminDashboard({ api, user, onLogout }) {
       </header>
 
       <nav className="dashboard-nav" aria-label="Administration sections">
-        {views.map((view) => (
+        {availableViews.map((view) => (
           <button
-            className={activeView === view.id ? "nav-button active" : "nav-button"}
+            className={visibleView === view.id ? "nav-button active" : "nav-button"}
             type="button"
-            aria-pressed={activeView === view.id}
+            aria-pressed={visibleView === view.id}
             onClick={() => handleViewChange(view.id)}
             key={view.id}
           >
@@ -134,7 +139,7 @@ export default function AdminDashboard({ api, user, onLogout }) {
       ) : (
         !error && (
           <>
-            {activeView === "overview" && (
+            {visibleView === "overview" && (
               <section aria-labelledby="overview-heading">
                 <h2 id="overview-heading">Overview</h2>
                 <div className="summary-grid">
@@ -160,7 +165,7 @@ export default function AdminDashboard({ api, user, onLogout }) {
               </section>
             )}
 
-            {activeView === "departments" && (
+            {visibleView === "departments" && (
               <section aria-labelledby="departments-heading">
                 <div className="section-heading">
                   <div>
@@ -180,7 +185,19 @@ export default function AdminDashboard({ api, user, onLogout }) {
               </section>
             )}
 
-            {activeView === "faculty" && (
+            {visibleView === "colleges" && user.role === "super_admin" && (
+              <section aria-labelledby="colleges-heading">
+                <div className="section-heading">
+                  <div>
+                    <h2 id="colleges-heading">Colleges</h2>
+                    <p className="muted">Loaded campus colleges.</p>
+                  </div>
+                </div>
+                <CollegeList colleges={colleges} />
+              </section>
+            )}
+
+            {visibleView === "faculty" && (
               <section aria-labelledby="faculty-heading">
                 <div className="section-heading">
                   <div>
