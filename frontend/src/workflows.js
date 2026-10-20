@@ -1,18 +1,49 @@
+const LIST_PAGE_SIZE = 100;
+const MAX_LIST_PAGES = 1000;
+
+async function loadAllPages(api, path) {
+  const records = [];
+  const seenIds = new Set();
+
+  for (let pageNumber = 0; pageNumber < MAX_LIST_PAGES; pageNumber += 1) {
+    const response = await api.get(path, {
+      params: { skip: pageNumber * LIST_PAGE_SIZE, limit: LIST_PAGE_SIZE },
+    });
+    const page = response.data;
+
+    if (!Array.isArray(page)) {
+      throw new Error(`Unexpected list response from ${path}`);
+    }
+
+    for (const record of page) {
+      if (record?.id == null || seenIds.has(record.id)) {
+        throw new Error(`Repeated or invalid list record from ${path}`);
+      }
+      seenIds.add(record.id);
+    }
+
+    records.push(...page);
+    if (page.length < LIST_PAGE_SIZE) return records;
+  }
+
+  throw new Error(`List page limit exceeded for ${path}`);
+}
+
 export async function loadAdministrativeData(api, role) {
   const requests = [
-    api.get("/departments/", { params: { skip: 0, limit: 100 } }),
-    api.get("/faculty_members/", { params: { skip: 0, limit: 100 } }),
+    loadAllPages(api, "/departments/"),
+    loadAllPages(api, "/faculty_members/"),
   ];
 
   if (role === "super_admin") {
-    requests.push(api.get("/colleges/", { params: { skip: 0, limit: 100 } }));
+    requests.push(loadAllPages(api, "/colleges/"));
   }
 
   const [departments, faculty, colleges] = await Promise.all(requests);
   return {
-    departments: departments.data,
-    faculty: faculty.data,
-    colleges: colleges?.data || [],
+    departments,
+    faculty,
+    colleges: colleges || [],
   };
 }
 
